@@ -17,8 +17,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/ga4bigquery"
-Repository = "https://github.com/your-org/ga4bigquery"
+Homepage = "https://github.com/hortemo/ga4bigquery"
+Repository = "https://github.com/hortemo/ga4bigquery"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

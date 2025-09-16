@@ -9,13 +9,13 @@ Minimal, project-agnostic helper for querying **Google Analytics 4 (GA4) BigQuer
 ## Installation
 
 ```bash
-pip install git+https://github.com/your-org/ga4bigquery.git
+pip install git+https://github.com/hortemo/ga4bigquery.git
 ```
 
 Or clone and install locally:
 
 ```bash
-git clone https://github.com/your-org/ga4bigquery.git
+git clone https://github.com/hortemo/ga4bigquery.git
 cd ga4bigquery
 pip install -e ".[dev]"
 ```
