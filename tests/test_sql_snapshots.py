@@ -8,6 +8,9 @@ import pytest
 
 from ga4bigquery import GA4BigQuery, FunnelStep
 
+PROJECT_ID = "proj"
+DATASET_ID = "dataset"
+
 
 class _CaptureQuery(Exception):
     """Internal helper used to intercept the generated SQL without running it."""
@@ -32,7 +35,14 @@ def capture_ga4() -> type[_CaptureGA4]:
 
 
 def test_request_events_sql_simple_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_2024", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events_2024",
+        tz="UTC",
+        user_id_col="user_id",
+        client=object(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_events(events=["purchase"], start=date(2024, 3, 1), end=date(2024, 3, 2))
@@ -49,7 +59,14 @@ def test_request_events_sql_simple_snapshot(capture_ga4: type[_CaptureGA4]):
 
 
 def test_request_events_sql_uniques_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events",
+        tz="UTC",
+        user_id_col="user_id",
+        client=object(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_events(
@@ -73,7 +90,9 @@ def test_request_events_sql_uniques_snapshot(capture_ga4: type[_CaptureGA4]):
 
 def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4]):
     ga = capture_ga4(
-        table_id="proj.dataset.events_*",
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events_*",
         tz="America/Los_Angeles",
         user_id_col="user_pseudo_id",
         client=object(),
@@ -102,7 +121,14 @@ def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4
 
 
 def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=object(),
+    )
 
     filters = [
         {"prop": "event_params.quantity", "op": ">=", "values": [10]},
@@ -131,7 +157,14 @@ def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureG
 
 
 def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=object(),
+    )
 
     filters = [
         {"prop": "event_params.currency", "op": "IN", "values": ["USD", "EUR"]},
@@ -163,7 +196,14 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
 
 
 def test_request_funnel_sql_single_step_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=object(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_funnel(
@@ -193,7 +233,9 @@ ORDER BY event_month ASC"""
 
 def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
     ga = capture_ga4(
-        table_id="proj.dataset.events_*",
+        project_id=PROJECT_ID,
+        dataset_id=DATASET_ID,
+        table_id="events_*",
         tz="America/New_York",
         user_id_col="user_pseudo_id",
         client=object(),
