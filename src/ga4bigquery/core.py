@@ -126,12 +126,25 @@ class GA4BigQuery:
       - request_events
       - request_funnel
 
-    Project-agnostic: pass the table_id (may end with *), timezone for bucketing,
-    and the user identifier column (default 'user_pseudo_id').
+    Project-agnostic: pass the project, dataset, and table identifiers (table may end
+    with *), timezone for bucketing, and the user identifier column (default
+    'user_pseudo_id').
     """
 
-    def __init__(self, table_id: str, *, tz: str = "UTC", user_id_col: str = "user_pseudo_id", client: Optional[bigquery.Client] = None):
+    def __init__(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+        *,
+        tz: str = "UTC",
+        user_id_col: str = "user_pseudo_id",
+        client: Optional[bigquery.Client] = None,
+    ):
+        self.project_id = project_id
+        self.dataset_id = dataset_id
         self.table_id = table_id
+        self._table_fqn = f"{project_id}.{dataset_id}.{table_id}"
         self.tz = tz
         self.user_id_col = user_id_col
         self.client = client or bigquery.Client()
@@ -164,7 +177,7 @@ class GA4BigQuery:
         select_cols.append(f"{formula or default_metric} AS value")
         select_cols += custom_selects
 
-        from_clause = f"`{self.table_id}`"
+        from_clause = f"`{self._table_fqn}`"
 
         where_parts: List[str] = [
             "event_name IN ({})".format(", ".join("'{}'".format(e.replace("'", "\\'")) for e in events))
@@ -259,7 +272,7 @@ class GA4BigQuery:
                 f"""
 step{idx} AS (
   SELECT {', '.join(select_fields)}
-  FROM `{self.table_id}`
+  FROM `{self._table_fqn}`
   WHERE {' AND '.join(wheres)}
 )
                 """.strip()

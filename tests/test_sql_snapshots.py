@@ -32,7 +32,14 @@ def capture_ga4() -> type[_CaptureGA4]:
 
 
 def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        project_id="proj",
+        dataset_id="dataset",
+        table_id="events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=object(),
+    )
 
     filters = [
         {"prop": "event_params.currency", "op": "IN", "values": ["USD", "EUR"]},
@@ -65,7 +72,9 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
 
 def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
     ga = capture_ga4(
-        table_id="proj.dataset.events_*",
+        project_id="proj",
+        dataset_id="dataset",
+        table_id="events_*",
         tz="America/New_York",
         user_id_col="user_pseudo_id",
         client=object(),

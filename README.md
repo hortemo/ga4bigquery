@@ -28,12 +28,21 @@ from google.cloud import bigquery
 from ga4bigquery import GA4BigQuery, FunnelStep
 
 # --- Your GA4 export details ---
-TABLE_ID = "photo-roulette-40b87.analytics_163566231.events_*"
+PROJECT_ID = "photo-roulette-40b87"
+DATASET_ID = "analytics_163566231"
+TABLE_ID = "events_*"
 TZ = "America/Los_Angeles"
 USER_ID_COL = "user_id"  # or 'user_pseudo_id'
 
 client = bigquery.Client()
-ga = GA4BigQuery(table_id=TABLE_ID, tz=TZ, user_id_col=USER_ID_COL, client=client)
+ga = GA4BigQuery(
+    project_id=PROJECT_ID,
+    dataset_id=DATASET_ID,
+    table_id=TABLE_ID,
+    tz=TZ,
+    user_id_col=USER_ID_COL,
+    client=client,
+)
 
 # Active users by version (Android only), last 7 days
 active_android = ga.request_events(
