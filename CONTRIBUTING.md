@@ -1,7 +1,7 @@
 
 # Contributing
 
-Thanks for helping improve **eventloom-bq**!
+Thanks for helping improve **ga4bigquery**!
 
 ## Development setup
 ```bash

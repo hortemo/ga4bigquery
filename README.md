@@ -1,5 +1,5 @@
 
-# eventloom-bq
+# ga4bigquery
 
 Minimal, project-agnostic helper for querying **Google Analytics 4 (GA4) BigQuery exports** for
 **event counts/uniques** and **multi-step funnels** — with simple grouping and time bucketing.
@@ -9,14 +9,14 @@ Minimal, project-agnostic helper for querying **Google Analytics 4 (GA4) BigQuer
 ## Installation
 
 ```bash
-pip install git+https://github.com/your-org/eventloom-bq.git
+pip install git+https://github.com/your-org/ga4bigquery.git
 ```
 
 Or clone and install locally:
 
 ```bash
-git clone https://github.com/your-org/eventloom-bq.git
-cd eventloom-bq
+git clone https://github.com/your-org/ga4bigquery.git
+cd ga4bigquery
 pip install -e ".[dev]"
 ```
 
