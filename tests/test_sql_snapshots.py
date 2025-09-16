@@ -130,6 +130,28 @@ def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureG
     assert captured.value.sql == expected_sql
 
 
+def test_request_events_sql_decimal_filters_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["purchase"],
+            start=date(2024, 5, 1),
+            end=date(2024, 5, 1),
+            filters=[{"prop": "event_params.price", "op": ">=", "values": ["9.99"]}],
+        )
+
+    expected_sql = """
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(*) AS value
+        FROM `proj.dataset.events_*`
+        WHERE (event_name IN ('purchase')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'price' AND CAST(value.string_value AS NUMERIC) >= ('9.99'))) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240501' AND '20240501') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-05-01T00:00:00+00:00') AND TIMESTAMP('2024-05-01T23:59:59.999999+00:00'))
+        GROUP BY event_date, event_name
+        ORDER BY event_date ASC
+        """
+
+    assert captured.value.sql == expected_sql
+
+
 def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
     ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
 
@@ -157,6 +179,28 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
         WHERE (event_name IN ('purchase', 'login')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'currency' AND value.string_value IN ('USD', 'EUR'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND value.string_value = ('gold'))) AND (platform != ('ANDROID')) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240107') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-07T23:59:59.999999+00:00'))
         GROUP BY event_week, event_name, currency, country, tier
         ORDER BY event_week ASC
+        """
+
+    assert captured.value.sql == expected_sql
+
+
+def test_request_events_sql_group_by_alias_collision_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events", tz="UTC", user_id_col="user_id", client=object())
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["purchase"],
+            start=date(2024, 2, 1),
+            end=date(2024, 2, 2),
+            group_by=["event_params.mode", "user_properties.mode"],
+        )
+
+    expected_sql = """
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(*) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'mode') AS event_params_mode, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'mode') AS user_properties_mode
+        FROM `proj.dataset.events`
+        WHERE (event_name IN ('purchase')) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:00:00+00:00') AND TIMESTAMP('2024-02-02T23:59:59.999999+00:00'))
+        GROUP BY event_date, event_name, event_params_mode, user_properties_mode
+        ORDER BY event_date ASC
         """
 
     assert captured.value.sql == expected_sql
