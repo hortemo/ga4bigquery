@@ -30,7 +30,7 @@ def _parse_filter(filter_: EventFilter) -> str:
 
     if prefix in {"event_params", "user_properties"}:
         values_are_numeric = _values_are_numeric(values)
-        value_expr = "CAST(value.string_value AS INT64)" if values_are_numeric else "value.string_value"
+        value_expr = "CAST(value.string_value AS NUMERIC)" if values_are_numeric else "value.string_value"
         return (
             "EXISTS (SELECT * FROM UNNEST({prefix}) WHERE key = '{key}' "
             "AND {value_expr} {op} {values})"

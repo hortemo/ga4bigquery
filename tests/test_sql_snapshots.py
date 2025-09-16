@@ -122,7 +122,7 @@ def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureG
     expected_sql = """
         SELECT FORMAT_TIMESTAMP('%Y-%m-%d %H:00:00', TIMESTAMP_TRUNC(TIMESTAMP_MICROS(event_timestamp), HOUR, 'UTC'), 'UTC') AS event_hour, event_name, COUNT(*) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'quantity') AS quantity, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'level') AS level, platform AS platform
         FROM `proj.dataset.events_*`
-        WHERE (event_name IN ('purchase')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'quantity' AND CAST(value.string_value AS INT64) >= ('10'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'score' AND CAST(value.string_value AS INT64) < ('5'))) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240301' AND '20240303') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-03T23:59:59.999999+00:00'))
+        WHERE (event_name IN ('purchase')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'quantity' AND CAST(value.string_value AS NUMERIC) >= ('10'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'score' AND CAST(value.string_value AS NUMERIC) < ('5'))) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240301' AND '20240303') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-03T23:59:59.999999+00:00'))
         GROUP BY event_hour, event_name, quantity, level, platform
         ORDER BY event_hour ASC
         """
