@@ -1,123 +1,16 @@
-
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, timedelta
-from typing import List, TypedDict, Tuple, Union, Literal, Optional
+import re
+from datetime import date
+from typing import List, Optional, Union, Literal
 
 import pandas as pd
-import re
 from google.cloud import bigquery
 
-
-EventOperator = Literal["IN", "NOT IN", "=", "!=", ">", "<", ">=", "<="]
-
-
-class EventFilter(TypedDict):
-    prop: str
-    op: EventOperator
-    values: List[str]
-
-
-@dataclass
-class FunnelStep:
-    event_name: str
-    conversion_window_gt: timedelta = timedelta(seconds=0)
-    conversion_window_lt: timedelta = timedelta(days=30)
-    filters: List[EventFilter] = field(default_factory=list)
-
-
-def _parse_date_range(start: date, end: date, tz: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    start_ts = (
-        pd.Timestamp(start)
-        .tz_localize(tz)
-        .replace(hour=0, minute=0, second=0, microsecond=0)
-    )
-    end_ts = (
-        pd.Timestamp(end)
-        .tz_localize(tz)
-        .replace(hour=23, minute=59, second=59, microsecond=999_999)
-    )
-    return start_ts, end_ts
-
-
-def _build_interval_columns(interval: Literal["day", "hour", "week", "month"], tz: str):
-    interval = interval.lower()
-
-    if interval in {"day", "date"}:
-        expr = (
-            "FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), '{tz}')) AS event_date"
-        ).format(tz=tz)
-        return expr, "event_date", "event_date"
-
-    if interval == "hour":
-        expr = (
-            "FORMAT_TIMESTAMP('%Y-%m-%d %H:00:00', "
-            "TIMESTAMP_TRUNC(TIMESTAMP_MICROS(event_timestamp), HOUR, '{tz}'), '{tz}') AS event_hour"
-        ).format(tz=tz)
-        return expr, "event_hour", "event_hour"
-
-    if interval == "week":
-        expr = (
-            "FORMAT_DATE('%Y-%m-%d', "
-            "DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), '{tz}'), WEEK(MONDAY))) AS event_week"
-        ).format(tz=tz)
-        return expr, "event_week", "event_week"
-
-    if interval == "month":
-        expr = (
-            "FORMAT_DATE('%Y-%m', "
-            "DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), '{tz}'), MONTH)) AS event_month"
-        ).format(tz=tz)
-        return expr, "event_month", "event_month"
-
-    raise ValueError("interval must be one of: 'day', 'hour', 'week', 'month'")
-
-
-def _parse_filters(filters: List[EventFilter]) -> List[str]:
-    return [_parse_filter(f) for f in (filters or [])]
-
-
-def _parse_filter(filter: EventFilter) -> str:
-    prop_with_prefix = filter["prop"]
-    parts = prop_with_prefix.split(".")
-    prefix = parts[0] if len(parts) > 1 else None
-    prop_without_prefix = parts[-1]
-    op = filter["op"]
-
-    values = filter["values"]
-    values_sql = "({})".format(", ".join("'{}'".format(str(x).replace("'", "\\'")) for x in values))
-
-    if prefix in {"event_params", "user_properties"}:
-        values_are_numeric = all(re.fullmatch(r"-?\d+(\.\d+)?", str(v)) is not None for v in values)
-        value_expr = "CAST(value.string_value AS INT64)" if values_are_numeric else "value.string_value"
-        return (
-            "EXISTS (SELECT * FROM UNNEST({prefix}) WHERE key = '{key}' "
-            "AND {value_expr} {op} {values})"
-        ).format(prefix=prefix, key=prop_without_prefix, value_expr=value_expr, op=op, values=values_sql)
-
-    return f"{prop_with_prefix} {op} {values_sql}"
-
-
-def _parse_group_by(group_by: List[str]):
-    statements: List[str] = []
-    aliases: List[str] = []
-
-    for prop_with_prefix in (group_by or []):
-        parts = prop_with_prefix.split(".")
-        prefix = parts[0] if len(parts) > 1 else None
-        prop_without_prefix = parts[-1]
-
-        if prefix in {"event_params", "user_properties"}:
-            statements.append(
-                "(SELECT props.value.string_value FROM UNNEST({prefix}) props WHERE props.key = '{key}') "
-                "AS {alias}".format(prefix=prefix, key=prop_without_prefix, alias=prop_without_prefix)
-            )
-        else:
-            statements.append(f"{prop_with_prefix} AS {prop_without_prefix}")
-        aliases.append(prop_without_prefix)
-
-    return statements, aliases
+from .dates import _parse_date_range, _build_interval_columns
+from .filters import _parse_filters
+from .group_by import _parse_group_by
+from .types import EventFilter, FunnelStep
 
 
 class GA4BigQuery:
