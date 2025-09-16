@@ -31,6 +31,105 @@ def capture_ga4() -> type[_CaptureGA4]:
     return _CaptureGA4
 
 
+def test_request_events_sql_simple_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events_2024", tz="UTC", user_id_col="user_id", client=object())
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(events=["purchase"], start=date(2024, 3, 1), end=date(2024, 3, 2))
+
+    expected_sql = """
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(*) AS value
+        FROM `proj.dataset.events_2024`
+        WHERE (event_name IN ('purchase')) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-02T23:59:59.999999+00:00'))
+        GROUP BY event_date, event_name
+        ORDER BY event_date ASC
+        """
+
+    assert captured.value.sql == expected_sql
+
+
+def test_request_events_sql_uniques_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events", tz="UTC", user_id_col="user_id", client=object())
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["page_view"],
+            start=date(2024, 4, 1),
+            end=date(2024, 4, 7),
+            measure="uniques",
+            interval="day",
+        )
+
+    expected_sql = """
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(DISTINCT user_id) AS value
+        FROM `proj.dataset.events`
+        WHERE (event_name IN ('page_view')) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-04-01T00:00:00+00:00') AND TIMESTAMP('2024-04-07T23:59:59.999999+00:00'))
+        GROUP BY event_date, event_name
+        ORDER BY event_date ASC
+        """
+
+    assert captured.value.sql == expected_sql
+
+
+def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="America/Los_Angeles",
+        user_id_col="user_pseudo_id",
+        client=object(),
+    )
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["login", "purchase"],
+            start=date(2023, 12, 15),
+            end=date(2024, 1, 10),
+            filters=[{"prop": "platform", "op": "IN", "values": ["ANDROID", "IOS"]}],
+            group_by="country",
+            interval="month",
+            measure="totals",
+        )
+
+    expected_sql = """
+        SELECT FORMAT_DATE('%Y-%m', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'America/Los_Angeles'), MONTH)) AS event_month, event_name, COUNT(*) AS value, geo.country AS country
+        FROM `proj.dataset.events_*`
+        WHERE (event_name IN ('login', 'purchase')) AND (platform IN ('ANDROID', 'IOS')) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20231215' AND '20240111') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2023-12-15T00:00:00-08:00') AND TIMESTAMP('2024-01-10T23:59:59.999999-08:00'))
+        GROUP BY event_month, event_name, country
+        ORDER BY event_month ASC
+        """
+
+    assert captured.value.sql == expected_sql
+
+
+def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+
+    filters = [
+        {"prop": "event_params.quantity", "op": ">=", "values": [10]},
+        {"prop": "user_properties.score", "op": "<", "values": [5]},
+    ]
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["purchase"],
+            start=date(2024, 3, 1),
+            end=date(2024, 3, 3),
+            filters=filters,
+            group_by=["event_params.quantity", "user_properties.level", "platform"],
+            interval="hour",
+        )
+
+    expected_sql = """
+        SELECT FORMAT_TIMESTAMP('%Y-%m-%d %H:00:00', TIMESTAMP_TRUNC(TIMESTAMP_MICROS(event_timestamp), HOUR, 'UTC'), 'UTC') AS event_hour, event_name, COUNT(*) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'quantity') AS quantity, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'level') AS level, platform AS platform
+        FROM `proj.dataset.events_*`
+        WHERE (event_name IN ('purchase')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'quantity' AND CAST(value.string_value AS INT64) >= ('10'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'score' AND CAST(value.string_value AS INT64) < ('5'))) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240301' AND '20240303') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-03T23:59:59.999999+00:00'))
+        GROUP BY event_hour, event_name, quantity, level, platform
+        ORDER BY event_hour ASC
+        """
+
+    assert captured.value.sql == expected_sql
+
+
 def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
     ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
 
@@ -59,6 +158,35 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
         GROUP BY event_week, event_name, currency, country, tier
         ORDER BY event_week ASC
         """
+
+    assert captured.value.sql == expected_sql
+
+
+def test_request_funnel_sql_single_step_snapshot(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_funnel(
+            steps=[FunnelStep(event_name="sign_up")],
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 31),
+            interval="month",
+        )
+
+    expected_sql = """WITH
+step1 AS (
+  SELECT user_id, event_timestamp, FORMAT_DATE('%Y-%m', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), MONTH)) AS event_month
+  FROM `proj.dataset.events_*`
+  WHERE event_name = 'sign_up' AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240131' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-31T23:59:59.999999+00:00')
+)
+
+SELECT
+  event_month,
+  COUNT(DISTINCT step1.user_id) AS `1`
+FROM step1
+
+GROUP BY event_month
+ORDER BY event_month ASC"""
 
     assert captured.value.sql == expected_sql
 
