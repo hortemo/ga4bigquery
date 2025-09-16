@@ -10,6 +10,8 @@ class _FakeResult:
             "event_date": ["2025-01-01"],
             "event_name": ["test_event"],
             "value": [1],
+            "1": [1],
+            "2": [1],
         })
 
 class _FakeQueryJob:
