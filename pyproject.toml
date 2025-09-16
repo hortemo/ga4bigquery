@@ -16,6 +16,11 @@ dependencies = [
     "google-cloud-bigquery>=3.13",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
 [project.urls]
 Homepage = "https://github.com/hortemo/ga4bigquery"
 Repository = "https://github.com/hortemo/ga4bigquery"

@@ -17,7 +17,27 @@ Or clone and install locally:
 ```bash
 git clone https://github.com/hortemo/ga4bigquery.git
 cd ga4bigquery
+pip install -e "."
+```
+
+### Local development
+
+If you plan to modify the library or run the test suite, install the project in editable mode with
+the development dependencies. Creating a virtual environment keeps the tooling isolated:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
 pip install -e ".[dev]"
+```
+
+### Running tests
+
+The tests use a lightweight stub that captures the generated SQL, so no Google Cloud access is
+required. Once the development dependencies are installed, run:
+
+```bash
+pytest
 ```
 
 ## Quickstart
