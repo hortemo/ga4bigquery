@@ -1,9 +1,13 @@
+"""Support for turning ``GROUP BY`` instructions into SQL snippets."""
+
 from __future__ import annotations
 
 from typing import List, Tuple
 
 
 def _parse_group_by(group_by: List[str]) -> Tuple[List[str], List[str]]:
+    """Translate a ``GROUP BY`` specification into SQL select statements."""
+
     statements: List[str] = []
     aliases: List[str] = []
 

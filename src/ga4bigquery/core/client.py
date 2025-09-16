@@ -1,88 +1,88 @@
+"""Primary client for issuing GA4 queries against BigQuery."""
+
 from __future__ import annotations
 
-import re
+from collections.abc import Sequence
 from datetime import date
-from typing import List, Optional, Union, Literal
+from typing import Literal
 
 import pandas as pd
 from google.cloud import bigquery
 
-from .dates import _parse_date_range, _build_interval_columns
+from .dates import _build_interval_columns, _parse_date_range, _table_suffix_condition
 from .filters import _parse_filters
 from .group_by import _parse_group_by
+from .sql import format_literal, format_literal_list
 from .types import EventFilter, FunnelStep
 
 
 class GA4BigQuery:
-    """
-    Minimal GA4-on-BigQuery client focused on two operations:
-      - request_events
-      - request_funnel
+    """Minimal GA4-on-BigQuery client focused on event and funnel requests."""
 
-    Project-agnostic: pass the table_id (may end with *), timezone for bucketing,
-    and the user identifier column (default 'user_pseudo_id').
-    """
-
-    def __init__(self, table_id: str, *, tz: str = "UTC", user_id_col: str = "user_pseudo_id", client: Optional[bigquery.Client] = None):
+    def __init__(
+        self,
+        table_id: str,
+        *,
+        tz: str = "UTC",
+        user_id_col: str = "user_pseudo_id",
+        client: bigquery.Client | None = None,
+    ) -> None:
         self.table_id = table_id
         self.tz = tz
         self.user_id_col = user_id_col
         self.client = client or bigquery.Client()
 
     def _query(self, sql: str) -> pd.DataFrame:
+        """Execute ``sql`` and return the resulting dataframe."""
+
         return self.client.query(sql).result().to_dataframe()
 
     def request_events(
         self,
         *,
-        events: List[str],
+        events: Sequence[str],
         start: date,
         end: date,
-        measure: Union[Literal["totals"], Literal["uniques"]] = "totals",
-        formula: Optional[str] = None,
-        filters: Optional[List[EventFilter]] = None,
-        group_by: Union[str, List[str], None] = None,
+        measure: Literal["totals", "uniques"] = "totals",
+        formula: str | None = None,
+        filters: Sequence[EventFilter] | None = None,
+        group_by: str | Sequence[str] | None = None,
         interval: Literal["day", "hour", "week", "month"] = "day",
     ) -> pd.DataFrame:
+        """Return a time series of event metrics."""
+
+        if not events:
+            raise ValueError("events must contain at least one event name")
+
         start_ts, end_ts = _parse_date_range(start, end, self.tz)
 
-        group_by_list = [group_by] if isinstance(group_by, str) else (group_by or [])
-        group_by_list = [re.sub(r"^country$", "geo.country", g) for g in group_by_list]
+        group_by_list = self._normalize_group_by(group_by)
         custom_selects, custom_aliases = _parse_group_by(group_by_list)
 
         interval_select, interval_alias, order_col = _build_interval_columns(interval, self.tz)
 
-        select_cols: List[str] = [interval_select, "event_name"]
+        select_cols: list[str] = [interval_select, "event_name"]
         default_metric = f"COUNT(DISTINCT {self.user_id_col})" if measure == "uniques" else "COUNT(*)"
         select_cols.append(f"{formula or default_metric} AS value")
-        select_cols += custom_selects
+        select_cols.extend(custom_selects)
 
         from_clause = f"`{self.table_id}`"
 
-        where_parts: List[str] = [
-            "event_name IN ({})".format(", ".join("'{}'".format(e.replace("'", "\\'")) for e in events))
-        ]
-        where_parts += _parse_filters(filters or [])
+        where_parts: list[str] = [self._events_condition(events)]
+        where_parts += _parse_filters(list(filters or []))
 
-        if self.table_id.endswith("*"):
-            lo = start_ts.tz_convert("UTC").date().strftime("%Y%m%d")
-            hi = end_ts.tz_convert("UTC").date().strftime("%Y%m%d")
-            where_parts.append(
-                "REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '{lo}' AND '{hi}'".format(lo=lo, hi=hi)
-            )
+        suffix_condition = _table_suffix_condition(self.table_id, start_ts, end_ts)
+        if suffix_condition:
+            where_parts.append(suffix_condition)
 
-        where_parts.append(
-            "TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('{start}') AND TIMESTAMP('{end}')".format(
-                start=start_ts.isoformat(), end=end_ts.isoformat()
-            )
-        )
+        where_parts.append(self._timestamp_condition(start_ts, end_ts))
 
-        group_cols: List[str] = [interval_alias, "event_name"] + custom_aliases
+        group_cols: list[str] = [interval_alias, "event_name"] + custom_aliases
 
         sql = f"""
         SELECT {', '.join(select_cols)}
         FROM {from_clause}
-        WHERE {' AND '.join(f'({w})' for w in where_parts)}
+        WHERE {' AND '.join(f'({clause})' for clause in where_parts)}
         GROUP BY {', '.join(group_cols)}
         ORDER BY {order_col} ASC
         """
@@ -91,37 +91,30 @@ class GA4BigQuery:
         df.replace(["IOS", "ANDROID"], ["iOS", "Android"], inplace=True)
         df[interval_alias] = pd.to_datetime(df[interval_alias])
 
-        if custom_aliases:
-            cols = custom_aliases + (["event_name"] if len(events) > 1 else [])
-            pivot = df.pivot_table(values="value", index=interval_alias, columns=cols, fill_value=0)
-            return pivot.sort_index(axis=1)
-        else:
-            if len(events) > 1:
-                pivot = df.pivot_table(values="value", index=interval_alias, columns=["event_name"], fill_value=0)
-                return pivot.sort_index(axis=1)
-            else:
-                out = df[[interval_alias, "value"]].set_index(interval_alias).sort_index()
-                out.index.name = interval_alias
-                return out
+        return self._pivot_events_dataframe(df, interval_alias, custom_aliases, events)
 
     def request_funnel(
         self,
         *,
-        steps: List[FunnelStep],
+        steps: Sequence[FunnelStep],
         start: date,
         end: date,
-        group_by: Union[str, List[str], None] = None,
+        group_by: str | Sequence[str] | None = None,
         interval: Literal["day", "hour", "week", "month"] = "day",
     ) -> pd.DataFrame:
+        """Return conversion counts for a funnel across time."""
+
+        if not steps:
+            raise ValueError("steps must contain at least one funnel step")
+
         start_ts, end_ts = _parse_date_range(start, end, self.tz)
 
-        group_by_list = [group_by] if isinstance(group_by, str) else (group_by or [])
-        group_by_list = [re.sub(r"^country$", "geo.country", g) for g in group_by_list]
+        group_by_list = self._normalize_group_by(group_by)
         custom_selects, custom_aliases = _parse_group_by(group_by_list)
 
         interval_select, interval_alias, order_col = _build_interval_columns(interval, self.tz)
 
-        ctes: List[str] = []
+        ctes: list[str] = []
         ts_min = start_ts
         ts_max = end_ts
 
@@ -136,17 +129,14 @@ class GA4BigQuery:
                 ts_min += step.conversion_window_gt
                 ts_max += step.conversion_window_lt
 
-            wheres = [f"event_name = '{step.event_name.replace("'", "\\'")}'"]
-            wheres += _parse_filters(step.filters or [])
+            wheres = [f"event_name = {format_literal(step.event_name)}"]
+            wheres += _parse_filters(list(step.filters or []))
 
-            if self.table_id.endswith("*"):
-                lo = ts_min.tz_convert("UTC").date().strftime("%Y%m%d")
-                hi = ts_max.tz_convert("UTC").date().strftime("%Y%m%d")
-                wheres.append("REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '{lo}' AND '{hi}'".format(lo=lo, hi=hi))
+            suffix_condition = _table_suffix_condition(self.table_id, ts_min, ts_max)
+            if suffix_condition:
+                wheres.append(suffix_condition)
 
-            wheres.append("TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('{start}') AND TIMESTAMP('{end}')".format(
-                start=ts_min.isoformat(), end=ts_max.isoformat()
-            ))
+            wheres.append(self._timestamp_condition(ts_min, ts_max))
 
             ctes.append(
                 f"""
@@ -158,7 +148,7 @@ step{idx} AS (
                 """.strip()
             )
 
-        joins: List[str] = []
+        joins: list[str] = []
         for i in range(2, len(steps) + 1):
             gt_us = int(steps[i - 1].conversion_window_gt.total_seconds() * 1_000_000)
             lt_us = int(steps[i - 1].conversion_window_lt.total_seconds() * 1_000_000)
@@ -187,12 +177,64 @@ GROUP BY {interval_alias}{(',' + ', '.join(custom_aliases)) if custom_aliases el
 ORDER BY {order_col} ASC
         """.strip()
 
-        df = self._query(sql).replace(["IOS", "ANDROID"], ["iOS", "Android"])
+        df = self._query(sql)
+        df.replace(["IOS", "ANDROID"], ["iOS", "Android"], inplace=True)
         df[interval_alias] = pd.to_datetime(df[interval_alias])
 
+        return self._pivot_funnel_dataframe(df, interval_alias, custom_aliases, len(steps))
+
+    @staticmethod
+    def _normalize_group_by(group_by: str | Sequence[str] | None) -> list[str]:
+        if group_by is None:
+            return []
+        if isinstance(group_by, str):
+            values = [group_by]
+        else:
+            values = list(group_by)
+        return ["geo.country" if column == "country" else column for column in values]
+
+    @staticmethod
+    def _events_condition(events: Sequence[str]) -> str:
+        return "event_name IN {}".format(format_literal_list(events))
+
+    @staticmethod
+    def _timestamp_condition(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> str:
+        return (
+            "TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('{start}') AND TIMESTAMP('{end}')"
+        ).format(start=start_ts.isoformat(), end=end_ts.isoformat())
+
+    @staticmethod
+    def _pivot_events_dataframe(
+        df: pd.DataFrame,
+        interval_alias: str,
+        custom_aliases: Sequence[str],
+        events: Sequence[str],
+    ) -> pd.DataFrame:
         if custom_aliases:
-            values_cols = [str(i) for i in range(1, len(steps) + 1)]
+            columns = list(custom_aliases)
+            if len(events) > 1:
+                columns += ["event_name"]
+            pivot = df.pivot_table(values="value", index=interval_alias, columns=columns, fill_value=0)
+            return pivot.sort_index(axis=1)
+
+        if len(events) > 1:
+            pivot = df.pivot_table(values="value", index=interval_alias, columns=["event_name"], fill_value=0)
+            return pivot.sort_index(axis=1)
+
+        out = df[[interval_alias, "value"]].set_index(interval_alias).sort_index()
+        out.index.name = interval_alias
+        return out
+
+    @staticmethod
+    def _pivot_funnel_dataframe(
+        df: pd.DataFrame,
+        interval_alias: str,
+        custom_aliases: Sequence[str],
+        step_count: int,
+    ) -> pd.DataFrame:
+        if custom_aliases:
+            values_cols = [str(i) for i in range(1, step_count + 1)]
             pivot = df.pivot_table(index=interval_alias, columns=custom_aliases, values=values_cols, fill_value=0)
             return pivot.sort_index(axis=1)
-        else:
-            return df.set_index(interval_alias)[[str(i) for i in range(1, len(steps) + 1)]].sort_index()
+
+        return df.set_index(interval_alias)[[str(i) for i in range(1, step_count + 1)]].sort_index()

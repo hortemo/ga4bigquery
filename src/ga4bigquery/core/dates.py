@@ -1,3 +1,5 @@
+"""Helpers for handling date ranges and time buckets."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -7,6 +9,8 @@ import pandas as pd
 
 
 def _parse_date_range(start: date, end: date, tz: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    """Return timezone aware timestamps covering the inclusive date range."""
+
     start_ts = (
         pd.Timestamp(start)
         .tz_localize(tz)
@@ -21,6 +25,8 @@ def _parse_date_range(start: date, end: date, tz: str) -> Tuple[pd.Timestamp, pd
 
 
 def _build_interval_columns(interval: Literal["day", "hour", "week", "month"], tz: str):
+    """Return SQL expressions for truncating timestamps to the desired bucket."""
+
     interval = interval.lower()
 
     if interval in {"day", "date"}:
@@ -51,3 +57,14 @@ def _build_interval_columns(interval: Literal["day", "hour", "week", "month"], t
         return expr, "event_month", "event_month"
 
     raise ValueError("interval must be one of: 'day', 'hour', 'week', 'month'")
+
+
+def _table_suffix_condition(table_id: str, start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> str | None:
+    """Return the ``_TABLE_SUFFIX`` predicate for wildcard tables, if needed."""
+
+    if not table_id.endswith("*"):
+        return None
+
+    lo = start_ts.tz_convert("UTC").date().strftime("%Y%m%d")
+    hi = end_ts.tz_convert("UTC").date().strftime("%Y%m%d")
+    return "REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '{lo}' AND '{hi}'".format(lo=lo, hi=hi)
