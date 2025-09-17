@@ -9,7 +9,7 @@ version = "0.1.0"
 description = "Lean GA4 BigQuery event + funnel querying"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [{ name = "Your Name" }]
 dependencies = [
     "pandas>=1.5",
