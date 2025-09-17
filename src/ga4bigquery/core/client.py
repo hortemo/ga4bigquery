@@ -285,7 +285,6 @@ class GA4BigQuery:
 
     @staticmethod
     def _prepare_result_dataframe(df: pd.DataFrame, interval_alias: str) -> pd.DataFrame:
-        df.replace(["IOS", "ANDROID"], ["iOS", "Android"], inplace=True)
         df[interval_alias] = pd.to_datetime(df[interval_alias])
         return df
 
