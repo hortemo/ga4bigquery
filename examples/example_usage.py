@@ -1,7 +1,9 @@
 
 from datetime import date
+
 from google.cloud import bigquery
-from ga4bigquery import GA4BigQuery, FunnelStep
+
+from ga4bigquery import FunnelStep, GA4BigQuery
 
 TABLE_ID = "bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*"
 TZ = "America/Los_Angeles"

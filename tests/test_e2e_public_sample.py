@@ -4,12 +4,11 @@ from datetime import date
 
 import pandas as pd
 import pytest
-from google.cloud import bigquery
 from google.api_core import exceptions as gcore_exc
 from google.auth import exceptions as auth_exc
+from google.cloud import bigquery
 
-from ga4bigquery import GA4BigQuery, FunnelStep
-
+from ga4bigquery import FunnelStep, GA4BigQuery
 
 pytestmark = pytest.mark.e2e
 
