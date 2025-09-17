@@ -5,6 +5,20 @@ import pandas as pd
 from ga4bigquery.core.client import GA4BigQuery
 
 
+def test_prepare_result_dataframe_preserves_platform_values() -> None:
+    df = pd.DataFrame(
+        {
+            "interval": ["2024-01-01"],
+            "platform": ["IOS"],
+        }
+    )
+
+    result = GA4BigQuery._prepare_result_dataframe(df, "interval")
+
+    assert list(result["platform"]) == ["IOS"]
+    assert result["interval"].dtype == "datetime64[ns]"
+
+
 def test_pivot_events_dataframe_without_grouping_single_event() -> None:
     df = pd.DataFrame(
         {
