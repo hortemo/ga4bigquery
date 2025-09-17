@@ -42,6 +42,42 @@ pytest
 
 ## Quickstart
 
+### Authentication
+
+`GA4BigQuery` delegates credentials and project discovery to
+[`google.cloud.bigquery.Client`](https://cloud.google.com/python/docs/reference/bigquery/latest/google.cloud.bigquery.client.Client).
+The easiest way to get started is to rely on
+[Application Default Credentials (ADC)](https://cloud.google.com/docs/authentication/provide-credentials-adc),
+which the BigQuery client will pick up automatically. Common options include:
+
+1. **Local development via gcloud** – run `gcloud auth application-default login`
+   (requires the `gcloud` SDK) and the client will use your user credentials.
+2. **Service account key file** – create a service account with BigQuery access,
+   download its JSON key, and point the `GOOGLE_APPLICATION_CREDENTIALS`
+   environment variable to the file.
+3. **Google Cloud runtimes** – when the code runs on Cloud Run, Cloud Functions,
+   Vertex, or GCE/GKE with an attached service account, ADC will automatically
+   use that service account.
+
+The service account or user must be able to run queries and read the GA4
+export dataset. Granting the
+[`roles/bigquery.jobUser`](https://cloud.google.com/bigquery/docs/access-control#bigquery.jobUser)
+project role plus dataset-level `roles/bigquery.dataViewer` access is usually
+enough. If you need to use explicit credentials, construct the BigQuery client
+yourself and pass it to `GA4BigQuery`:
+
+```python
+from google.oauth2 import service_account
+from google.cloud import bigquery
+
+creds = service_account.Credentials.from_service_account_file("/path/key.json")
+client = bigquery.Client(project="my-project", credentials=creds)
+ga = GA4BigQuery(table_id=TABLE_ID, tz=TZ, user_id_col=USER_ID_COL, client=client)
+```
+
+Once the client is authenticated you can run the Quickstart example below or
+any other queries supported by the library.
+
 ```python
 from datetime import date, timedelta
 from google.cloud import bigquery
