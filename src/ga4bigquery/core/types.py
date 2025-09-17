@@ -16,7 +16,7 @@ class EventFilter(TypedDict):
 
     prop: str
     op: EventOperator
-    values: List[str]
+    values: List[object]
 
 
 @dataclass
