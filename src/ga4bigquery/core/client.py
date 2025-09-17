@@ -210,15 +210,12 @@ ORDER BY {order_col} ASC
         custom_aliases: Sequence[str],
         events: Sequence[str],
     ) -> pd.DataFrame:
-        if custom_aliases:
-            columns = list(custom_aliases)
-            if len(events) > 1:
-                columns += ["event_name"]
-            pivot = df.pivot_table(values="value", index=interval_alias, columns=columns, fill_value=0)
-            return pivot.sort_index(axis=1)
-
+        columns = list(custom_aliases)
         if len(events) > 1:
-            pivot = df.pivot_table(values="value", index=interval_alias, columns=["event_name"], fill_value=0)
+            columns.append("event_name")
+
+        if columns:
+            pivot = df.pivot_table(values="value", index=interval_alias, columns=columns, fill_value=0)
             return pivot.sort_index(axis=1)
 
         out = df[[interval_alias, "value"]].set_index(interval_alias).sort_index()
@@ -232,9 +229,10 @@ ORDER BY {order_col} ASC
         custom_aliases: Sequence[str],
         step_count: int,
     ) -> pd.DataFrame:
+        values_cols = [str(i) for i in range(1, step_count + 1)]
+
         if custom_aliases:
-            values_cols = [str(i) for i in range(1, step_count + 1)]
             pivot = df.pivot_table(index=interval_alias, columns=custom_aliases, values=values_cols, fill_value=0)
             return pivot.sort_index(axis=1)
 
-        return df.set_index(interval_alias)[[str(i) for i in range(1, step_count + 1)]].sort_index()
+        return df.set_index(interval_alias)[values_cols].sort_index()
