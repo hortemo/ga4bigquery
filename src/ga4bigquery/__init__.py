@@ -1,5 +1,5 @@
 
-from .core import GA4BigQuery, FunnelStep, EventFilter, Properties
+from .core import EventFilter, FunnelStep, GA4BigQuery, Properties
 
 __all__ = ["GA4BigQuery", "FunnelStep", "EventFilter", "Properties"]
 __version__ = "0.1.0"

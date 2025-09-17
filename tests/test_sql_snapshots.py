@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from ga4bigquery import GA4BigQuery, FunnelStep
+from ga4bigquery import FunnelStep, GA4BigQuery
 
 
 class _CaptureQuery(Exception):
