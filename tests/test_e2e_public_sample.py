@@ -11,6 +11,9 @@ from google.auth import exceptions as auth_exc
 from ga4bigquery import GA4BigQuery, FunnelStep
 
 
+pytestmark = pytest.mark.e2e
+
+
 def _client() -> GA4BigQuery:
     try:
         client = bigquery.Client()
