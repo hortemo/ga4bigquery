@@ -257,7 +257,7 @@ LEFT JOIN step3
        ON step3.user_pseudo_id = step2.user_pseudo_id
       AND step3.event_timestamp - step2.event_timestamp > 600000000
       AND step3.event_timestamp - step2.event_timestamp < 172800000000
-GROUP BY event_date,device, country
+GROUP BY event_date, device, country
 ORDER BY event_date ASC"""
 
     assert captured.value.sql == expected_sql
