@@ -85,7 +85,7 @@ def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4
             start=date(2023, 12, 15),
             end=date(2024, 1, 10),
             filters=[{"prop": "platform", "op": "IN", "values": ["ANDROID", "IOS"]}],
-            group_by="country",
+            group_by="geo.country",
             interval="month",
             measure="totals",
         )
@@ -147,7 +147,7 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
             measure="uniques",
             formula="SUM(event_value)",
             filters=filters,
-            group_by=["event_params.currency", "country", "user_properties.tier"],
+            group_by=["event_params.currency", "geo.country", "user_properties.tier"],
             interval="week",
         )
 
@@ -224,7 +224,7 @@ def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
             steps=steps,
             start=date(2024, 2, 1),
             end=date(2024, 2, 3),
-            group_by=["event_params.device", "country"],
+            group_by=["event_params.device", "geo.country"],
             interval="day",
         )
 
