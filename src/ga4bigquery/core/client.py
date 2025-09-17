@@ -72,7 +72,7 @@ class GA4BigQuery:
     def request_events(
         self,
         *,
-        events: Sequence[str],
+        events: str | Sequence[str],
         start: date,
         end: date,
         measure: Literal["totals", "uniques"] = "totals",
@@ -83,8 +83,7 @@ class GA4BigQuery:
     ) -> pd.DataFrame:
         """Return a time series of event metrics."""
 
-        if not events:
-            raise ValueError("events must contain at least one event name")
+        normalized_events = self._normalize_events(events)
 
         start_ts, end_ts = _parse_date_range(start, end, self.tz)
         dimensions = self._prepare_dimensions(group_by, interval)
@@ -94,14 +93,16 @@ class GA4BigQuery:
         sql = self._render_events_sql(
             select_cols=select_cols,
             from_clause=f"`{self.table_id}`",
-            where_parts=self._build_event_where_parts(events, filters, start_ts, end_ts),
+            where_parts=self._build_event_where_parts(
+                normalized_events, filters, start_ts, end_ts
+            ),
             group_cols=dimensions.event_group_columns(),
             order_col=dimensions.order_column,
         )
 
         df = self._prepare_result_dataframe(self._query(sql), dimensions.interval_alias)
         return self._pivot_events_dataframe(
-            df, dimensions.interval_alias, dimensions.custom_aliases, events
+            df, dimensions.interval_alias, dimensions.custom_aliases, normalized_events
         )
 
     def request_funnel(
@@ -341,6 +342,18 @@ class GA4BigQuery:
         if isinstance(group_by, str):
             return [group_by]
         return list(group_by)
+
+    @staticmethod
+    def _normalize_events(events: str | Sequence[str]) -> list[str]:
+        if isinstance(events, str):
+            normalized = [events]
+        else:
+            normalized = list(events)
+        if not normalized:
+            raise ValueError("events must contain at least one event name")
+        if not all(isinstance(event, str) for event in normalized):  # pragma: no cover - defensive
+            raise TypeError("event names must be strings")
+        return normalized
 
     @staticmethod
     def _events_condition(events: Sequence[str]) -> str:

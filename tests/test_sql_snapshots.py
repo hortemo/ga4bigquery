@@ -24,6 +24,15 @@ class _CaptureGA4(GA4BigQuery):
         raise _CaptureQuery(sql)
 
 
+_SIMPLE_EVENTS_SQL = """
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(*) AS value
+        FROM `proj.dataset.events_2024`
+        WHERE (event_name IN ('purchase')) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-02T23:59:59.999999+00:00'))
+        GROUP BY event_date, event_name
+        ORDER BY event_date ASC
+        """
+
+
 @pytest.fixture
 def capture_ga4() -> type[_CaptureGA4]:
     """Fixture returning a GA4 client class that records the generated SQL."""
@@ -37,15 +46,16 @@ def test_request_events_sql_simple_snapshot(capture_ga4: type[_CaptureGA4]):
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_events(events=["purchase"], start=date(2024, 3, 1), end=date(2024, 3, 2))
 
-    expected_sql = """
-        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(*) AS value
-        FROM `proj.dataset.events_2024`
-        WHERE (event_name IN ('purchase')) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-02T23:59:59.999999+00:00'))
-        GROUP BY event_date, event_name
-        ORDER BY event_date ASC
-        """
+    assert captured.value.sql == _SIMPLE_EVENTS_SQL
 
-    assert captured.value.sql == expected_sql
+
+def test_request_events_accepts_single_event_string(capture_ga4: type[_CaptureGA4]):
+    ga = capture_ga4(table_id="proj.dataset.events_2024", tz="UTC", user_id_col="user_id", client=object())
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(events="purchase", start=date(2024, 3, 1), end=date(2024, 3, 2))
+
+    assert captured.value.sql == _SIMPLE_EVENTS_SQL
 
 
 def test_request_events_sql_uniques_snapshot(capture_ga4: type[_CaptureGA4]):
