@@ -12,6 +12,9 @@ import pandas as pd
 def _parse_date_range(start: date, end: date, tz: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
     """Return timezone aware timestamps covering the inclusive date range."""
 
+    if end < start:
+        raise ValueError("end must be on or after start")
+
     start_ts = (
         pd.Timestamp(start)
         .tz_localize(tz)
