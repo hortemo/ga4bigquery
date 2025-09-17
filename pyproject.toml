@@ -36,3 +36,8 @@ include = ["ga4bigquery*"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: marks tests that require external services",
+]
