@@ -95,12 +95,17 @@ ga = GA4BigQuery(table_id=TABLE_ID, tz=TZ, user_id_col=USER_ID_COL, client=clien
 page_views = ga.request_events(
     events=["page_view"],
     start=date(2020, 11, 1),
-    end=date(2020, 11, 7),
+    end=date(2020, 11, 2),
     measure="totals",
     group_by="platform",
     interval="day",
 )
 print(page_views.tail())
+# Expected output:
+# platform        WEB
+# event_date
+# 2020-11-01  11308.0
+# 2020-11-02  17698.0
 
 # Multi-step purchase funnel grouped by platform over the same period
 steps = [
@@ -111,11 +116,17 @@ steps = [
 purchase_funnel = ga.request_funnel(
     steps=steps,
     start=date(2020, 11, 1),
-    end=date(2020, 11, 7),
+    end=date(2020, 11, 2),
     group_by="platform",
     interval="day",
 )
 print(purchase_funnel.tail())
+# Expected output:
+#                 1     2    3
+# platform      WEB   WEB  WEB
+# event_date
+# 2020-11-01  607.0   4.0  3.0
+# 2020-11-02  897.0  19.0  9.0
 ```
 
 ## Features
