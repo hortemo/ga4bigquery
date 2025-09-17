@@ -5,12 +5,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ga4bigquery"
-version = "0.1.0"
+version = "1.0.0"
 description = "Lean GA4 BigQuery event + funnel querying"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Henrik Hortemo" }]
+keywords = ["analytics", "ga4", "google-analytics", "bigquery", "funnel-analysis"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: Log Analysis",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = [
     "pandas>=1.5",
     "google-cloud-bigquery>=3.13",
@@ -22,6 +33,8 @@ dependencies = [
 dev = [
     "pytest>=8",
     "ruff>=0.4",
+    "build>=1.0",
+    "twine>=5.0",
 ]
 
 [project.urls]

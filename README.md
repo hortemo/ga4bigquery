@@ -1,12 +1,21 @@
 # ga4bigquery
 
-Helper around Google Analytics 4 (GA4) BigQuery exports.
+`ga4bigquery` is a lightweight helper for working with Google Analytics 4 (GA4) exports stored in
+BigQuery. It focuses on the high-level questions analysts and product teams ask most often: "How
+many events did we record?" and "How well is our funnel converting?"
 
 ## Installation
 
 ```bash
-pip install git+https://github.com/hortemo/ga4bigquery.git
+pip install ga4bigquery
 ```
+
+## Features
+
+- Typed, fluent interface for querying GA4 event exports stored in BigQuery.
+- First-class support for time zones, date ranges, grouping dimensions, and aggregation intervals.
+- Funnel analysis with ordered steps and automatic metric calculation.
+- Works with the standard GA4 export schema available in the Google Analytics sample datasets.
 
 ## Usage
 
