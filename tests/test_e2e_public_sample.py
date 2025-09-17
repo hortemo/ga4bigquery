@@ -42,15 +42,8 @@ def test_public_sample_page_views_matches_snapshot() -> None:
     )
 
     expected = pd.DataFrame(
-        {
-            "value": [11308, 17698],
-        },
-        index=pd.to_datetime(
-            [
-                "2020-11-01",
-                "2020-11-02",
-            ]
-        ),
+        {"value": [11308, 17698]},
+        index=pd.to_datetime(["2020-11-01", "2020-11-02"]),
     )
     expected.index.name = "event_date"
 
@@ -60,41 +53,25 @@ def test_public_sample_page_views_matches_snapshot() -> None:
 def test_public_sample_purchase_funnel_matches_snapshot() -> None:
     ga = _client()
 
-    steps = [
-        FunnelStep(event_name="view_item"),
-        FunnelStep(event_name="add_to_cart"),
-        FunnelStep(event_name="purchase"),
-    ]
-
     df = ga.request_funnel(
-        steps=steps,
+        steps=[
+            FunnelStep(event_name="view_item"),
+            FunnelStep(event_name="add_to_cart"),
+            FunnelStep(event_name="purchase"),
+        ],
         start=date(2020, 11, 1),
         end=date(2020, 11, 2),
         group_by="platform",
         interval="day",
     )
 
-    # Expect only WEB platform data in this window for the sample dataset
-    columns = pd.MultiIndex.from_tuples(
-        [
-            ("1", "WEB"),
-            ("2", "WEB"),
-            ("3", "WEB"),
-        ],
-        names=[None, "platform"],
-    )
     expected = pd.DataFrame(
-        [
-            [607.0, 4.0, 3.0],
-            [897.0, 19.0, 9.0],
-        ],
-        index=pd.to_datetime(
-            [
-                "2020-11-01",
-                "2020-11-02",
-            ]
+        [[607.0, 4.0, 3.0], [897.0, 19.0, 9.0]],
+        index=pd.to_datetime(["2020-11-01", "2020-11-02"]),
+        columns=pd.MultiIndex.from_tuples(
+            [("1", "WEB"), ("2", "WEB"), ("3", "WEB")],
+            names=[None, "platform"],
         ),
-        columns=columns,
     )
     expected.index.name = "event_date"
 
