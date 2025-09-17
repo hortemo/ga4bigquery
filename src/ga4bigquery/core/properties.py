@@ -25,39 +25,43 @@ class _PropertyNamespace:
             object.__setattr__(self, name, value)
 
     def __getattr__(self, item: str) -> str:
-        properties = object.__getattribute__(self, "_properties")
-        if item in properties:
-            return properties[item]
-
-        prefix = object.__getattribute__(self, "_prefix")
-        allow_dynamic = object.__getattribute__(self, "_allow_dynamic")
-        if allow_dynamic and prefix:
-            return f"{prefix}.{item}"
-
-        raise AttributeError(f"Unknown property '{item}'")
+        value = self._lookup_property(item)
+        if value is None:
+            raise AttributeError(f"Unknown property '{item}'")
+        return value
 
     def __getitem__(self, item: str) -> str:
-        properties = object.__getattribute__(self, "_properties")
-        if item in properties:
-            return properties[item]
-
-        prefix = object.__getattribute__(self, "_prefix")
-        allow_dynamic = object.__getattribute__(self, "_allow_dynamic")
-        if allow_dynamic and prefix:
-            return f"{prefix}.{item}"
-
-        raise KeyError(item)
+        value = self._lookup_property(item)
+        if value is None:
+            raise KeyError(item)
+        return value
 
     def __call__(self, item: str) -> str:
-        prefix = object.__getattribute__(self, "_prefix")
-        allow_dynamic = object.__getattribute__(self, "_allow_dynamic")
-        if allow_dynamic and prefix:
-            return f"{prefix}.{item}"
-
-        raise TypeError("This namespace does not support dynamic properties")
+        prefix = self._dynamic_prefix()
+        if prefix is None:
+            raise TypeError("This namespace does not support dynamic properties")
+        return f"{prefix}.{item}"
 
     def __setattr__(self, key, value):  # pragma: no cover - defensive
         raise AttributeError("Properties are read-only")
+
+    def _lookup_property(self, item: str) -> str | None:
+        properties = object.__getattribute__(self, "_properties")
+        if item in properties:
+            return properties[item]
+
+        prefix = self._dynamic_prefix()
+        if prefix is not None:
+            return f"{prefix}.{item}"
+
+        return None
+
+    def _dynamic_prefix(self) -> str | None:
+        prefix = object.__getattribute__(self, "_prefix")
+        allow_dynamic = object.__getattribute__(self, "_allow_dynamic")
+        if allow_dynamic and prefix:
+            return prefix
+        return None
 
 
 class _RootProperties:
