@@ -27,3 +27,9 @@ class FunnelStep:
     conversion_window_gt: timedelta = timedelta(seconds=0)
     conversion_window_lt: timedelta = timedelta(days=30)
     filters: List[EventFilter] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.conversion_window_gt < timedelta(seconds=0):
+            raise ValueError("conversion_window_gt must be non-negative")
+        if self.conversion_window_lt <= self.conversion_window_gt:
+            raise ValueError("conversion_window_lt must be greater than conversion_window_gt")
