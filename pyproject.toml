@@ -14,6 +14,7 @@ authors = [{ name = "Your Name" }]
 dependencies = [
     "pandas>=1.5",
     "google-cloud-bigquery>=3.13",
+    "google-cloud-bigquery-storage>=2.33",
     "db-dtypes>=1.0.0",
 ]
 
