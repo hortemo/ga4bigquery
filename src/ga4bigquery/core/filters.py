@@ -32,10 +32,29 @@ def _parse_filter(filter_: EventFilter) -> str:
     return _format_direct_filter(prop_with_prefix, op, values)
 
 
+_SCALAR_OPERATORS = {"=", "!=", ">", "<", ">=", "<="}
+
+
+def _format_operator_values(op: str, values: Sequence[object]) -> str:
+    """Return the SQL representation for ``values`` under ``op``."""
+
+    if op in {"IN", "NOT IN"}:
+        if not values:
+            raise ValueError("IN style operators require at least one value")
+        return format_literal_list(values)
+
+    if op in _SCALAR_OPERATORS:
+        if len(values) != 1:
+            raise ValueError("Comparison operators require exactly one value")
+        return format_literal(values[0])
+
+    raise ValueError(f"Unsupported operator: {op}")
+
+
 def _format_direct_filter(prop_with_prefix: str, op: str, values: Sequence[object]) -> str:
     """Return the SQL predicate for non-nested properties."""
 
-    return f"{prop_with_prefix} {op} {format_literal_list(values)}"
+    return f"{prop_with_prefix} {op} {_format_operator_values(op, values)}"
 
 
 def _values_are_numeric(values: Sequence[object]) -> bool:
@@ -55,7 +74,7 @@ def _format_nested_filter(prefix: str | None, key: str, op: str, values: Sequenc
 
     assert prefix is not None  # Defensive: ``parse_property_path`` guarantees this for nested props.
     value_expr = _value_expression(values)
-    values_sql = format_literal_list(values)
+    values_sql = _format_operator_values(op, values)
     key_literal = format_literal(key)
     return (
         "EXISTS (SELECT * FROM UNNEST({prefix}) WHERE key = {key_literal} "
