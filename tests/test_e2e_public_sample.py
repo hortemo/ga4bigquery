@@ -69,7 +69,7 @@ def test_public_sample_purchase_funnel_matches_snapshot() -> None:
         [[607.0, 4.0, 3.0], [897.0, 19.0, 9.0]],
         index=pd.to_datetime(["2020-11-01", "2020-11-02"]),
         columns=pd.MultiIndex.from_tuples(
-            [("1", "WEB"), ("2", "WEB"), ("3", "WEB")],
+            [("view_item", "WEB"), ("add_to_cart", "WEB"), ("purchase", "WEB")],
             names=[None, "platform"],
         ),
     )

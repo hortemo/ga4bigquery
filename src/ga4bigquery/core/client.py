@@ -135,6 +135,10 @@ class GA4BigQuery:
             f"COUNT(DISTINCT step{idx}.{self.user_id_col}) AS `{idx}`"
             for idx in range(1, len(steps) + 1)
         ]
+        step_column_names = self._funnel_step_column_names(steps)
+        column_mapping = {
+            str(idx): column_name for idx, column_name in enumerate(step_column_names, start=1)
+        }
 
         sql = self._render_funnel_sql(
             ctes=ctes,
@@ -144,8 +148,9 @@ class GA4BigQuery:
         )
 
         df = self._prepare_result_dataframe(self._query(sql), dimensions.interval_alias)
+        df = df.rename(columns=column_mapping)
         return self._pivot_funnel_dataframe(
-            df, dimensions.interval_alias, dimensions.custom_aliases, len(steps)
+            df, dimensions.interval_alias, dimensions.custom_aliases, step_column_names
         )
 
     def _prepare_dimensions(
@@ -376,15 +381,37 @@ class GA4BigQuery:
         df: pd.DataFrame,
         interval_alias: str,
         custom_aliases: Sequence[str],
-        step_count: int,
+        step_columns: Sequence[str],
     ) -> pd.DataFrame:
-        values_cols = [str(i) for i in range(1, step_count + 1)]
+        values_cols = list(step_columns)
 
         if custom_aliases:
-            pivot = df.pivot_table(index=interval_alias, columns=custom_aliases, values=values_cols, fill_value=0)
-            return pivot.sort_index(axis=1)
+            pivot = df.pivot_table(
+                index=interval_alias, columns=custom_aliases, values=values_cols, fill_value=0
+            ).sort_index(axis=1)
+            if isinstance(pivot.columns, pd.MultiIndex):
+                return pivot.reindex(step_columns, axis=1, level=0)
+            return pivot.reindex(step_columns, axis=1)
 
-        return df.set_index(interval_alias)[values_cols].sort_index()
+        out = df.set_index(interval_alias)[values_cols].sort_index()
+        out.index.name = interval_alias
+        return out
+
+    @staticmethod
+    def _funnel_step_column_names(steps: Sequence[FunnelStep]) -> tuple[str, ...]:
+        """Return display names for each funnel step ensuring uniqueness."""
+
+        seen: dict[str, int] = {}
+        names: list[str] = []
+        for step in steps:
+            base_name = step.event_name
+            count = seen.get(base_name, 0) + 1
+            seen[base_name] = count
+            if count == 1:
+                names.append(base_name)
+            else:
+                names.append(f"{base_name} ({count})")
+        return tuple(names)
 
     def _funnel_select_fields(
         self, include_dimensions: bool, dimensions: _DimensionContext
