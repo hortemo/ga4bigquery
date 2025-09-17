@@ -45,7 +45,7 @@ class _DimensionContext:
     def group_alias_suffix(self) -> str:
         """Return the suffix appended to the ``GROUP BY`` clause for funnels."""
 
-        return ("," + ", ".join(self.custom_aliases)) if self.custom_aliases else ""
+        return (", " + ", ".join(self.custom_aliases)) if self.custom_aliases else ""
 
 
 class GA4BigQuery:
