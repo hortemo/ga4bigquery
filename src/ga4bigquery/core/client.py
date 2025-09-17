@@ -180,15 +180,12 @@ class GA4BigQuery:
         start_ts: pd.Timestamp,
         end_ts: pd.Timestamp,
     ) -> list[str]:
-        where_parts = [self._events_condition(events)]
-        where_parts += self._compile_filters(filters)
-
-        suffix_condition = _table_suffix_condition(self.table_id, start_ts, end_ts)
-        if suffix_condition:
-            where_parts.append(suffix_condition)
-
-        where_parts.append(self._timestamp_condition(start_ts, end_ts))
-        return where_parts
+        return [
+            self._events_condition(events),
+            *self._compile_filters(filters),
+            *self._table_suffix_clauses(start_ts, end_ts),
+            self._timestamp_condition(start_ts, end_ts),
+        ]
 
     def _build_funnel_ctes(
         self,
@@ -244,20 +241,13 @@ class GA4BigQuery:
     ) -> str:
         """Return the SQL ``WITH`` clause for a single funnel step."""
 
-        select_fields = [self.user_id_col, "event_timestamp"]
-        if include_dimensions:
-            select_fields.append(dimensions.interval_select)
-            if dimensions.custom_selects:
-                select_fields.extend(dimensions.custom_selects)
-
-        wheres = [f"event_name = {format_literal(step.event_name)}"]
-        wheres += self._compile_filters(step.filters)
-
-        suffix_condition = _table_suffix_condition(self.table_id, step_start, step_end)
-        if suffix_condition:
-            wheres.append(suffix_condition)
-
-        wheres.append(self._timestamp_condition(step_start, step_end))
+        select_fields = self._funnel_select_fields(include_dimensions, dimensions)
+        wheres = [
+            f"event_name = {format_literal(step.event_name)}",
+            *self._compile_filters(step.filters),
+            *self._table_suffix_clauses(step_start, step_end),
+            self._timestamp_condition(step_start, step_end),
+        ]
 
         return "\n".join(
             [
@@ -332,7 +322,7 @@ class GA4BigQuery:
 
     @staticmethod
     def _compile_filters(filters: Sequence[EventFilter] | None) -> list[str]:
-        return _parse_filters(list(filters or []))
+        return _parse_filters(filters)
 
     @staticmethod
     def _prepare_result_dataframe(df: pd.DataFrame, interval_alias: str) -> pd.DataFrame:
@@ -395,3 +385,19 @@ class GA4BigQuery:
             return pivot.sort_index(axis=1)
 
         return df.set_index(interval_alias)[values_cols].sort_index()
+
+    def _funnel_select_fields(
+        self, include_dimensions: bool, dimensions: _DimensionContext
+    ) -> list[str]:
+        fields = [self.user_id_col, "event_timestamp"]
+        if include_dimensions:
+            fields.append(dimensions.interval_select)
+            if dimensions.custom_selects:
+                fields.extend(dimensions.custom_selects)
+        return fields
+
+    def _table_suffix_clauses(
+        self, start_ts: pd.Timestamp, end_ts: pd.Timestamp
+    ) -> tuple[str, ...]:
+        clause = _table_suffix_condition(self.table_id, start_ts, end_ts)
+        return (clause,) if clause else tuple()

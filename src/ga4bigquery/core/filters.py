@@ -4,35 +4,38 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import List
 
 from ._properties import NESTED_PROPERTY_PREFIXES, parse_property_path
-from .sql import format_literal_list
+from .sql import format_literal, format_literal_list
 from .types import EventFilter
 
 _NUMERIC_PATTERN = re.compile(r"-?\d+(\.\d+)?")
 
 
-def _parse_filters(filters: List[EventFilter]) -> List[str]:
-    """Convert a list of :class:`EventFilter` objects into SQL predicates."""
+def _parse_filters(filters: Sequence[EventFilter] | None) -> list[str]:
+    """Convert :class:`EventFilter` objects into SQL predicates."""
 
-    return [_parse_filter(filter_) for filter_ in (filters or [])]
+    if not filters:
+        return []
+    return [_parse_filter(filter_) for filter_ in filters]
 
 
 def _parse_filter(filter_: EventFilter) -> str:
     prop_with_prefix = filter_["prop"]
     path = parse_property_path(prop_with_prefix)
     op = filter_["op"]
+    values: tuple[object, ...] = tuple(filter_["values"])
 
-    values = list(filter_["values"])
-    values_sql = format_literal_list(values)
+    if path.prefix in NESTED_PROPERTY_PREFIXES:
+        return _format_nested_filter(path.prefix, path.key, op, values)
 
-    prefix = path.prefix
-    if prefix in NESTED_PROPERTY_PREFIXES:
-        value_expr = _value_expression(values)
-        return _format_nested_filter(prefix, path.key, op, value_expr, values_sql)
+    return _format_direct_filter(prop_with_prefix, op, values)
 
-    return f"{prop_with_prefix} {op} {values_sql}"
+
+def _format_direct_filter(prop_with_prefix: str, op: str, values: Sequence[object]) -> str:
+    """Return the SQL predicate for non-nested properties."""
+
+    return f"{prop_with_prefix} {op} {format_literal_list(values)}"
 
 
 def _values_are_numeric(values: Sequence[object]) -> bool:
@@ -47,10 +50,20 @@ def _value_expression(values: Sequence[object]) -> str:
     return "CAST(value.string_value AS NUMERIC)" if _values_are_numeric(values) else "value.string_value"
 
 
-def _format_nested_filter(prefix: str, key: str, op: str, value_expr: str, values_sql: str) -> str:
+def _format_nested_filter(prefix: str | None, key: str, op: str, values: Sequence[object]) -> str:
     """Return the ``EXISTS`` clause for parameter and user property filters."""
 
+    assert prefix is not None  # Defensive: ``parse_property_path`` guarantees this for nested props.
+    value_expr = _value_expression(values)
+    values_sql = format_literal_list(values)
+    key_literal = format_literal(key)
     return (
-        "EXISTS (SELECT * FROM UNNEST({prefix}) WHERE key = '{key}' "
-        "AND {value_expr} {op} {values})"
-    ).format(prefix=prefix, key=key, value_expr=value_expr, op=op, values=values_sql)
+        "EXISTS (SELECT * FROM UNNEST({prefix}) WHERE key = {key_literal} "
+        "AND {value_expr} {op} {values_sql})"
+    ).format(
+        prefix=prefix,
+        key_literal=key_literal,
+        value_expr=value_expr,
+        op=op,
+        values_sql=values_sql,
+    )
