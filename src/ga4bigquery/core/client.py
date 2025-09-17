@@ -188,10 +188,8 @@ ORDER BY {order_col} ASC
         if group_by is None:
             return []
         if isinstance(group_by, str):
-            values = [group_by]
-        else:
-            values = list(group_by)
-        return ["geo.country" if column == "country" else column for column in values]
+            return [group_by]
+        return list(group_by)
 
     @staticmethod
     def _events_condition(events: Sequence[str]) -> str:
