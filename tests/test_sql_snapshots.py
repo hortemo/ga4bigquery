@@ -187,7 +187,7 @@ def test_request_funnel_sql_single_step_snapshot(capture_ga4: type[_CaptureGA4])
 step1 AS (
   SELECT user_id, event_timestamp, FORMAT_DATE('%Y-%m', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), MONTH)) AS event_month
   FROM `proj.dataset.events_*`
-  WHERE event_name = 'sign_up' AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240131' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-31T23:59:59.999999+00:00')
+  WHERE event_name IN ('sign_up') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240131' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-31T23:59:59.999999+00:00')
 )
 
 SELECT
@@ -242,17 +242,17 @@ def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
 step1 AS (
   SELECT user_pseudo_id, event_timestamp, FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'America/New_York')) AS event_date, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'device') AS device, geo.country AS country
   FROM `proj.dataset.events_*`
-  WHERE event_name = 'view_item' AND EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'category' AND value.string_value = 'electronics') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240204' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:00:00-05:00') AND TIMESTAMP('2024-02-03T23:59:59.999999-05:00')
+  WHERE event_name IN ('view_item') AND EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'category' AND value.string_value = 'electronics') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240204' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:00:00-05:00') AND TIMESTAMP('2024-02-03T23:59:59.999999-05:00')
 ),
 step2 AS (
   SELECT user_pseudo_id, event_timestamp
   FROM `proj.dataset.events_*`
-  WHERE event_name = 'add_to_cart' AND EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND value.string_value IN ('gold', 'silver')) AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240205' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:05:00-05:00') AND TIMESTAMP('2024-02-04T23:59:59-05:00')
+  WHERE event_name IN ('add_to_cart') AND EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND value.string_value IN ('gold', 'silver')) AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240205' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:05:00-05:00') AND TIMESTAMP('2024-02-04T23:59:59-05:00')
 ),
 step3 AS (
   SELECT user_pseudo_id, event_timestamp
   FROM `proj.dataset.events_*`
-  WHERE event_name = 'purchase' AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240207' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:15:00-05:00') AND TIMESTAMP('2024-02-06T23:59:59-05:00')
+  WHERE event_name IN ('purchase') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240207' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:15:00-05:00') AND TIMESTAMP('2024-02-06T23:59:59-05:00')
 )
 
 SELECT

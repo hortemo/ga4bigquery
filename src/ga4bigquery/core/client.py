@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import Literal
 
@@ -15,37 +14,6 @@ from .filters import _parse_filters
 from .group_by import _parse_group_by
 from .sql import format_literal, format_literal_list
 from .types import EventFilter, FunnelStep
-
-
-@dataclass(frozen=True)
-class _DimensionContext:
-    """Container describing the interval and custom dimensions for a query."""
-
-    interval_select: str
-    interval_alias: str
-    order_column: str
-    custom_selects: tuple[str, ...]
-    custom_aliases: tuple[str, ...]
-
-    def event_select_columns(self, metric: str) -> list[str]:
-        """Return the select columns used for event style queries."""
-
-        return [self.interval_select, "event_name", f"{metric} AS value", *self.custom_selects]
-
-    def event_group_columns(self) -> list[str]:
-        """Return the group by clause for event style queries."""
-
-        return [self.interval_alias, "event_name", *self.custom_aliases]
-
-    def select_alias_suffix(self) -> str:
-        """Return the suffix appended to the ``SELECT`` clause for funnels."""
-
-        return (", " + ", ".join(self.custom_aliases)) if self.custom_aliases else ""
-
-    def group_alias_suffix(self) -> str:
-        """Return the suffix appended to the ``GROUP BY`` clause for funnels."""
-
-        return (", " + ", ".join(self.custom_aliases)) if self.custom_aliases else ""
 
 
 class GA4BigQuery:
@@ -84,25 +52,43 @@ class GA4BigQuery:
         """Return a time series of event metrics."""
 
         normalized_events = self._normalize_events(events)
-
         start_ts, end_ts = _parse_date_range(start, end, self.tz)
-        dimensions = self._prepare_dimensions(group_by, interval)
-
-        select_cols = self._build_event_select_columns(dimensions, measure, formula)
-
-        sql = self._render_events_sql(
-            select_cols=select_cols,
-            from_clause=f"`{self.table_id}`",
-            where_parts=self._build_event_where_parts(
-                normalized_events, filters, start_ts, end_ts
-            ),
-            group_cols=dimensions.event_group_columns(),
-            order_col=dimensions.order_column,
+        group_by_list = self._normalize_group_by(group_by)
+        custom_selects, custom_aliases = _parse_group_by(group_by_list)
+        interval_select, interval_alias, order_col = _build_interval_columns(
+            interval, self.tz
         )
+        metric = self._metric_expression(measure, self.user_id_col, formula)
 
-        df = self._prepare_result_dataframe(self._query(sql), dimensions.interval_alias)
+        select_cols = [
+            interval_select,
+            "event_name",
+            f"{metric} AS value",
+            *custom_selects,
+        ]
+
+        where_parts = [
+            self._event_name_condition(normalized_events),
+            *self._compile_filters(filters),
+            *self._table_suffix_clauses(start_ts, end_ts),
+            self._timestamp_condition(start_ts, end_ts),
+        ]
+        where_clause = " AND ".join(f"({clause})" for clause in where_parts)
+        group_cols = [interval_alias, "event_name", *custom_aliases]
+        sql = f"""
+        SELECT {', '.join(select_cols)}
+        FROM `{self.table_id}`
+        WHERE {where_clause}
+        GROUP BY {', '.join(group_cols)}
+        ORDER BY {order_col} ASC
+        """
+
+        df = self._prepare_result_dataframe(self._query(sql), interval_alias)
         return self._pivot_events_dataframe(
-            df, dimensions.interval_alias, dimensions.custom_aliases, normalized_events
+            df=df,
+            interval_alias=interval_alias,
+            custom_aliases=custom_aliases,
+            events=normalized_events,
         )
 
     def request_funnel(
@@ -120,220 +106,110 @@ class GA4BigQuery:
             raise ValueError("steps must contain at least one funnel step")
 
         start_ts, end_ts = _parse_date_range(start, end, self.tz)
-        dimensions = self._prepare_dimensions(group_by, interval)
-
-        ctes = self._build_funnel_ctes(
-            steps=steps,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            dimensions=dimensions,
-        )
-        joins = [
-            self._build_funnel_join_clause(idx, steps[idx - 1])
-            for idx in range(2, len(steps) + 1)
-        ]
-        step_cols = [
-            f"COUNT(DISTINCT step{idx}.{self.user_id_col}) AS `{idx}`"
-            for idx in range(1, len(steps) + 1)
-        ]
-
-        sql = self._render_funnel_sql(
-            ctes=ctes,
-            dimensions=dimensions,
-            step_cols=step_cols,
-            joins=joins,
-        )
-
-        df = self._prepare_result_dataframe(self._query(sql), dimensions.interval_alias)
-        return self._pivot_funnel_dataframe(
-            df, dimensions.interval_alias, dimensions.custom_aliases, len(steps)
-        )
-
-    def _prepare_dimensions(
-        self,
-        group_by: str | Sequence[str] | None,
-        interval: Literal["day", "hour", "week", "month"],
-    ) -> _DimensionContext:
         group_by_list = self._normalize_group_by(group_by)
         custom_selects, custom_aliases = _parse_group_by(group_by_list)
-        interval_select, interval_alias, order_col = _build_interval_columns(interval, self.tz)
-        return _DimensionContext(
-            interval_select=interval_select,
-            interval_alias=interval_alias,
-            order_column=order_col,
-            custom_selects=tuple(custom_selects),
-            custom_aliases=tuple(custom_aliases),
+        interval_select, interval_alias, order_col = _build_interval_columns(
+            interval, self.tz
         )
 
-    def _build_event_select_columns(
-        self,
-        dimensions: _DimensionContext,
-        measure: Literal["totals", "uniques"],
-        formula: str | None,
-    ) -> list[str]:
-        metric = formula or self._metric_expression(measure)
-        return dimensions.event_select_columns(metric)
-
-    def _build_event_where_parts(
-        self,
-        events: Sequence[str],
-        filters: Sequence[EventFilter] | None,
-        start_ts: pd.Timestamp,
-        end_ts: pd.Timestamp,
-    ) -> list[str]:
-        return [
-            self._events_condition(events),
-            *self._compile_filters(filters),
-            *self._table_suffix_clauses(start_ts, end_ts),
-            self._timestamp_condition(start_ts, end_ts),
-        ]
-
-    def _build_funnel_ctes(
-        self,
-        *,
-        steps: Sequence[FunnelStep],
-        start_ts: pd.Timestamp,
-        end_ts: pd.Timestamp,
-        dimensions: _DimensionContext,
-    ) -> list[str]:
-        return [
-            self._render_funnel_cte(
-                idx=idx,
-                step=step,
-                step_start=step_start,
-                step_end=step_end,
-                include_dimensions=(idx == 1),
-                dimensions=dimensions,
-            )
-            for idx, step, step_start, step_end in self._iter_funnel_steps_within_range(
-                steps, start_ts, end_ts
-            )
-        ]
-
-    def _iter_funnel_steps_within_range(
-        self,
-        steps: Sequence[FunnelStep],
-        start_ts: pd.Timestamp,
-        end_ts: pd.Timestamp,
-    ) -> Iterator[tuple[int, FunnelStep, pd.Timestamp, pd.Timestamp]]:
-        """Yield each funnel step along with its timestamp bounds."""
-
+        ctes: list[str] = []
         cumulative_gt = timedelta(seconds=0)
         cumulative_lt = timedelta(seconds=0)
 
         for idx, step in enumerate(steps, start=1):
             if idx == 1:
-                yield idx, step, start_ts, end_ts
-                continue
+                step_start, step_end = start_ts, end_ts
+            else:
+                cumulative_gt += step.conversion_window_gt
+                cumulative_lt += step.conversion_window_lt
+                step_start = start_ts + cumulative_gt
+                step_end = end_ts + cumulative_lt
 
-            cumulative_gt += step.conversion_window_gt
-            cumulative_lt += step.conversion_window_lt
-            yield idx, step, start_ts + cumulative_gt, end_ts + cumulative_lt
+            select_fields = [self.user_id_col, "event_timestamp"]
+            if idx == 1:
+                select_fields.append(interval_select)
+                if custom_selects:
+                    select_fields.extend(custom_selects)
 
-    def _render_funnel_cte(
-        self,
-        *,
-        idx: int,
-        step: FunnelStep,
-        step_start: pd.Timestamp,
-        step_end: pd.Timestamp,
-        include_dimensions: bool,
-        dimensions: _DimensionContext,
-    ) -> str:
-        """Return the SQL ``WITH`` clause for a single funnel step."""
-
-        select_fields = self._funnel_select_fields(include_dimensions, dimensions)
-        wheres = [
-            f"event_name = {format_literal(step.event_name)}",
-            *self._compile_filters(step.filters),
-            *self._table_suffix_clauses(step_start, step_end),
-            self._timestamp_condition(step_start, step_end),
-        ]
-
-        return "\n".join(
-            [
-                f"step{idx} AS (",
-                f"  SELECT {', '.join(select_fields)}",
-                f"  FROM `{self.table_id}`",
-                f"  WHERE {' AND '.join(wheres)}",
-                ")",
+            wheres = [
+                self._event_name_condition(step.event_name),
+                *self._compile_filters(step.filters),
+                *self._table_suffix_clauses(step_start, step_end),
+                self._timestamp_condition(step_start, step_end),
             ]
-        )
 
-    def _build_funnel_join_clause(self, idx: int, step: FunnelStep) -> str:
-        gt_us = self._timedelta_to_microseconds(step.conversion_window_gt)
-        lt_us = self._timedelta_to_microseconds(step.conversion_window_lt)
-        return "\n".join(
+            ctes.append(
+                "\n".join(
+                    [
+                        f"step{idx} AS (",
+                        f"  SELECT {', '.join(select_fields)}",
+                        f"  FROM `{self.table_id}`",
+                        f"  WHERE {' AND '.join(wheres)}",
+                        ")",
+                    ]
+                )
+            )
+
+        joins = []
+        for idx in range(2, len(steps) + 1):
+            step = steps[idx - 1]
+            gt_us = int(step.conversion_window_gt.total_seconds() * 1_000_000)
+            lt_us = int(step.conversion_window_lt.total_seconds() * 1_000_000)
+            joins.append(
+                "\n".join(
+                    [
+                        f"LEFT JOIN step{idx}",
+                        f"       ON step{idx}.{self.user_id_col} = step{idx-1}.{self.user_id_col}",
+                        f"      AND step{idx}.event_timestamp - step{idx-1}.event_timestamp > {gt_us}",
+                        f"      AND step{idx}.event_timestamp - step{idx-1}.event_timestamp < {lt_us}",
+                    ]
+                )
+            )
+        step_cols = [
+            f"COUNT(DISTINCT step{idx}.{self.user_id_col}) AS `{idx}`"
+            for idx in range(1, len(steps) + 1)
+        ]
+
+        if custom_aliases:
+            select_suffix = ", " + ", ".join(custom_aliases)
+            group_suffix = ", " + ", ".join(custom_aliases)
+        else:
+            select_suffix = ""
+            group_suffix = ""
+
+        sql = "\n".join(
             [
-                f"LEFT JOIN step{idx}",
-                f"       ON step{idx}.{self.user_id_col} = step{idx-1}.{self.user_id_col}",
-                f"      AND step{idx}.event_timestamp - step{idx-1}.event_timestamp > {gt_us}",
-                f"      AND step{idx}.event_timestamp - step{idx-1}.event_timestamp < {lt_us}",
+                "WITH",
+                ",\n".join(ctes),
+                "",
+                "SELECT",
+                f"  {interval_alias}{select_suffix},",
+                f"  {', '.join(step_cols)}",
+                "FROM step1",
+                "\n".join(joins),
+                f"GROUP BY {interval_alias}{group_suffix}",
+                f"ORDER BY {order_col} ASC",
             ]
+        ).strip()
+
+        df = self._prepare_result_dataframe(self._query(sql), interval_alias)
+        return self._pivot_funnel_dataframe(
+            df=df,
+            interval_alias=interval_alias,
+            custom_aliases=custom_aliases,
+            step_count=len(steps),
         )
-
-    @staticmethod
-    def _timedelta_to_microseconds(delta: timedelta) -> int:
-        return int(delta.total_seconds() * 1_000_000)
-
-    @staticmethod
-    def _render_events_sql(
-        *,
-        select_cols: Sequence[str],
-        from_clause: str,
-        where_parts: Sequence[str],
-        group_cols: Sequence[str],
-        order_col: str,
-    ) -> str:
-        where_clause = " AND ".join(f"({clause})" for clause in where_parts)
-        lines = [
-            "",
-            f"        SELECT {', '.join(select_cols)}",
-            f"        FROM {from_clause}",
-            f"        WHERE {where_clause}",
-            f"        GROUP BY {', '.join(group_cols)}",
-            f"        ORDER BY {order_col} ASC",
-            "        ",
-        ]
-        return "\n".join(lines)
-
-    @staticmethod
-    def _render_funnel_sql(
-        *,
-        ctes: Sequence[str],
-        dimensions: _DimensionContext,
-        step_cols: Sequence[str],
-        joins: Sequence[str],
-    ) -> str:
-        select_suffix = dimensions.select_alias_suffix()
-        group_suffix = dimensions.group_alias_suffix()
-        parts = [
-            "WITH",
-            ",\n".join(ctes),
-            "",
-            "SELECT",
-            f"  {dimensions.interval_alias}{select_suffix},",
-            f"  {', '.join(step_cols)}",
-            "FROM step1",
-            "\n".join(joins),
-            f"GROUP BY {dimensions.interval_alias}{group_suffix}",
-            f"ORDER BY {dimensions.order_column} ASC",
-        ]
-        return "\n".join(parts).strip()
 
     @staticmethod
     def _compile_filters(filters: Sequence[EventFilter] | None) -> list[str]:
         return _parse_filters(filters)
 
     @staticmethod
-    def _prepare_result_dataframe(df: pd.DataFrame, interval_alias: str) -> pd.DataFrame:
+    def _prepare_result_dataframe(
+        df: pd.DataFrame, interval_alias: str
+    ) -> pd.DataFrame:
         df[interval_alias] = pd.to_datetime(df[interval_alias])
         return df
-
-    def _metric_expression(self, measure: Literal["totals", "uniques"]) -> str:
-        if measure == "uniques":
-            return f"COUNT(DISTINCT {self.user_id_col})"
-        return "COUNT(*)"
 
     @staticmethod
     def _normalize_group_by(group_by: str | Sequence[str] | None) -> list[str]:
@@ -346,18 +222,23 @@ class GA4BigQuery:
     @staticmethod
     def _normalize_events(events: str | Sequence[str]) -> list[str]:
         if isinstance(events, str):
-            normalized = [events]
-        else:
-            normalized = list(events)
-        if not normalized:
-            raise ValueError("events must contain at least one event name")
-        if not all(isinstance(event, str) for event in normalized):  # pragma: no cover - defensive
-            raise TypeError("event names must be strings")
-        return normalized
+            return [events]
+        return list(events)
 
     @staticmethod
-    def _events_condition(events: Sequence[str]) -> str:
-        return "event_name IN {}".format(format_literal_list(events))
+    def _event_name_condition(events: str | Sequence[str]) -> str:
+        normalized_events = GA4BigQuery._normalize_events(events)
+        return f"event_name IN {format_literal_list(normalized_events)}"
+
+    @staticmethod
+    def _metric_expression(
+        measure: Literal["totals", "uniques"], user_id_col: str, formula: str | None
+    ) -> str:
+        if formula is not None:
+            return formula
+        if measure == "uniques":
+            return f"COUNT(DISTINCT {user_id_col})"
+        return "COUNT(*)"
 
     @staticmethod
     def _timestamp_condition(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> str:
@@ -377,7 +258,12 @@ class GA4BigQuery:
             columns.append("event_name")
 
         if columns:
-            pivot = df.pivot_table(values="value", index=interval_alias, columns=columns, fill_value=0)
+            pivot = df.pivot_table(
+                values="value",
+                index=interval_alias,
+                columns=columns,
+                fill_value=0,
+            )
             return pivot.sort_index(axis=1)
 
         out = df[[interval_alias, "value"]].set_index(interval_alias).sort_index()
@@ -394,20 +280,15 @@ class GA4BigQuery:
         values_cols = [str(i) for i in range(1, step_count + 1)]
 
         if custom_aliases:
-            pivot = df.pivot_table(index=interval_alias, columns=custom_aliases, values=values_cols, fill_value=0)
+            pivot = df.pivot_table(
+                index=interval_alias,
+                columns=custom_aliases,
+                values=values_cols,
+                fill_value=0,
+            )
             return pivot.sort_index(axis=1)
 
         return df.set_index(interval_alias)[values_cols].sort_index()
-
-    def _funnel_select_fields(
-        self, include_dimensions: bool, dimensions: _DimensionContext
-    ) -> list[str]:
-        fields = [self.user_id_col, "event_timestamp"]
-        if include_dimensions:
-            fields.append(dimensions.interval_select)
-            if dimensions.custom_selects:
-                fields.extend(dimensions.custom_selects)
-        return fields
 
     def _table_suffix_clauses(
         self, start_ts: pd.Timestamp, end_ts: pd.Timestamp
