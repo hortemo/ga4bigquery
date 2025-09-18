@@ -51,7 +51,9 @@ def _format_operator_values(op: str, values: Sequence[object]) -> str:
     raise ValueError(f"Unsupported operator: {op}")
 
 
-def _format_direct_filter(prop_with_prefix: str, op: str, values: Sequence[object]) -> str:
+def _format_direct_filter(
+    prop_with_prefix: str, op: str, values: Sequence[object]
+) -> str:
     """Return the SQL predicate for non-nested properties."""
 
     return f"{prop_with_prefix} {op} {_format_operator_values(op, values)}"
@@ -66,13 +68,21 @@ def _values_are_numeric(values: Sequence[object]) -> bool:
 def _value_expression(values: Sequence[object]) -> str:
     """Return the SQL expression that extracts values from a nested record."""
 
-    return "CAST(value.string_value AS NUMERIC)" if _values_are_numeric(values) else "value.string_value"
+    return (
+        "CAST(value.string_value AS NUMERIC)"
+        if _values_are_numeric(values)
+        else "value.string_value"
+    )
 
 
-def _format_nested_filter(prefix: str | None, key: str, op: str, values: Sequence[object]) -> str:
+def _format_nested_filter(
+    prefix: str | None, key: str, op: str, values: Sequence[object]
+) -> str:
     """Return the ``EXISTS`` clause for parameter and user property filters."""
 
-    assert prefix is not None  # Defensive: ``parse_property_path`` guarantees this for nested props.
+    assert (
+        prefix is not None
+    )  # Defensive: ``parse_property_path`` guarantees this for nested props.
     value_expr = _value_expression(values)
     values_sql = _format_operator_values(op, values)
     key_literal = format_literal(key)
