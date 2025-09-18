@@ -1,10 +1,10 @@
-"""Standalone request function for GA4 funnel queries."""
+"""Standalone arguments function for GA4 funnel queries."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, timedelta
-from typing import Literal
+from typing import Literal, NotRequired, TypedDict, Unpack
 
 import pandas as pd
 from google.cloud import bigquery
@@ -22,27 +22,48 @@ from .query_helpers import (
 from .types import FunnelStep
 
 
-def request_funnel(
-    *,
-    client: bigquery.Client,
-    table_id: str,
-    tz: str,
-    user_id_col: str,
-    steps: Sequence[FunnelStep],
-    start: date,
-    end: date,
-    group_by: str | Sequence[str] | None = None,
-    interval: Literal["day", "hour", "week", "month"] = "day",
-) -> pd.DataFrame:
+class RequestFunnelSharedArguments(TypedDict):
+    client: bigquery.Client
+    table_id: str
+    tz: str
+    user_id_col: str
+
+
+class RequestFunnelSpecificArguments(TypedDict):
+    steps: Sequence[FunnelStep]
+    start: date
+    end: date
+    group_by: NotRequired[str | Sequence[str] | None]
+    interval: NotRequired[Literal["day", "hour", "week", "month"]]
+
+
+class RequestFunnelArguments(
+    RequestFunnelSharedArguments, RequestFunnelSpecificArguments
+):
+    pass
+
+
+def request_funnel(**arguments: Unpack[RequestFunnelArguments]) -> pd.DataFrame:
     """Return conversion counts for ``steps`` executed against ``table_id``."""
 
+    client = arguments["client"]
+    table_id = arguments["table_id"]
+    user_id_col = arguments["user_id_col"]
+    tz = arguments["tz"]
+
+    steps = arguments["steps"]
     if not steps:
         raise ValueError("steps must contain at least one funnel step")
 
-    start_ts, end_ts = _parse_date_range(start, end, tz)
-    group_by_list = normalize_group_by(group_by)
-    custom_selects, custom_aliases = _parse_group_by(group_by_list)
-    interval_select, interval_alias, order_col = _build_interval_columns(interval, tz)
+    start, end = _parse_date_range(arguments["start"], arguments["end"], tz)
+
+    group_by = normalize_group_by(arguments.get("group_by"))
+    group_by_selects, group_by_aliases = _parse_group_by(group_by)
+
+    interval = arguments.get("interval", "day")
+    interval_select, interval_alias, interval_order_by = _build_interval_columns(
+        interval, tz
+    )
 
     ctes: list[str] = []
     cumulative_gt = timedelta(seconds=0)
@@ -50,20 +71,20 @@ def request_funnel(
 
     for idx, step in enumerate(steps, start=1):
         if idx == 1:
-            step_start, step_end = start_ts, end_ts
+            step_start, step_end = start, end
         else:
             cumulative_gt += step.conversion_window_gt
             cumulative_lt += step.conversion_window_lt
-            step_start = start_ts + cumulative_gt
-            step_end = end_ts + cumulative_lt
+            step_start = start + cumulative_gt
+            step_end = end + cumulative_lt
 
-        select_fields = [user_id_col, "event_timestamp"]
+        step_selects = [user_id_col, "event_timestamp"]
         if idx == 1:
-            select_fields.append(interval_select)
-            if custom_selects:
-                select_fields.extend(custom_selects)
+            step_selects.append(interval_select)
+            if group_by_selects:
+                step_selects.extend(group_by_selects)
 
-        wheres = [
+        step_wheres = [
             event_name_condition(step.event_name),
             *compile_filters(step.filters),
             *table_suffix_clauses(table_id, step_start, step_end),
@@ -72,9 +93,9 @@ def request_funnel(
 
         ctes.append(
             f"""step{idx} AS (
-  SELECT {', '.join(select_fields)}
+  SELECT {', '.join(step_selects)}
   FROM `{table_id}`
-  WHERE {' AND '.join(wheres)}
+  WHERE {' AND '.join(step_wheres)}
 )"""
         )
 
@@ -95,17 +116,17 @@ def request_funnel(
         for idx in range(1, len(steps) + 1)
     ]
 
-    select_fields = [interval_alias, *custom_aliases, *step_cols]
-    group_by_fields = [interval_alias, *custom_aliases]
+    selects = [interval_alias, *group_by_aliases, *step_cols]
+    group_bys = [interval_alias, *group_by_aliases]
 
     sql = f"""WITH
 {',\n'.join(ctes)}
 
-SELECT {', '.join(select_fields)}
+SELECT {', '.join(selects)}
 FROM step1
 {'\n'.join(joins)}
-GROUP BY {', '.join(group_by_fields)}
-ORDER BY {order_col} ASC
+GROUP BY {', '.join(group_bys)}
+ORDER BY {interval_order_by} ASC
 """.strip()
 
     df = client.query(sql).result().to_dataframe()
@@ -113,7 +134,7 @@ ORDER BY {order_col} ASC
     return pivot_funnel_dataframe(
         df=df,
         interval_alias=interval_alias,
-        custom_aliases=custom_aliases,
+        group_by_aliases=group_by_aliases,
         step_count=len(steps),
     )
 
@@ -122,15 +143,15 @@ def pivot_funnel_dataframe(
     *,
     df: pd.DataFrame,
     interval_alias: str,
-    custom_aliases: Sequence[str],
+    group_by_aliases: Sequence[str],
     step_count: int,
 ) -> pd.DataFrame:
     values_cols = [str(i) for i in range(1, step_count + 1)]
 
-    if custom_aliases:
+    if group_by_aliases:
         pivot = df.pivot_table(
             index=interval_alias,
-            columns=custom_aliases,
+            columns=group_by_aliases,
             values=values_cols,
             fill_value=0,
         )
@@ -139,4 +160,4 @@ def pivot_funnel_dataframe(
     return df.set_index(interval_alias)[values_cols].sort_index()
 
 
-__all__ = ["pivot_funnel_dataframe", "request_funnel"]
+__all__ = ["RequestFunnelArguments", "pivot_funnel_dataframe", "request_funnel"]

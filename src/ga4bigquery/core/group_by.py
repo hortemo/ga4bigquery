@@ -13,7 +13,7 @@ def _parse_group_by(group_by: List[str]) -> Tuple[List[str], List[str]]:
     statements: List[str] = []
     aliases: List[str] = []
 
-    for prop_with_prefix in (group_by or []):
+    for prop_with_prefix in group_by or []:
         path = parse_property_path(prop_with_prefix)
         alias = path.key
 

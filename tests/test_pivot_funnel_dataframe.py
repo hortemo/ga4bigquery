@@ -21,7 +21,7 @@ def test_pivot_funnel_dataframe_without_grouping():
     result = pivot_funnel_dataframe(
         df=df,
         interval_alias="event_date",
-        custom_aliases=(),
+        group_by_aliases=(),
         step_count=3,
     )
 
@@ -38,7 +38,7 @@ def test_pivot_funnel_dataframe_without_grouping():
     assert_frame_equal(result, expected)
 
 
-def test_pivot_funnel_dataframe_with_custom_aliases_creates_sorted_multiindex():
+def test_pivot_funnel_dataframe_with_group_by_aliases_creates_sorted_multiindex():
     df = pd.DataFrame(
         {
             "event_date": pd.to_datetime(
@@ -59,7 +59,7 @@ def test_pivot_funnel_dataframe_with_custom_aliases_creates_sorted_multiindex():
     result = pivot_funnel_dataframe(
         df=df,
         interval_alias="event_date",
-        custom_aliases=("platform", "country"),
+        group_by_aliases=("platform", "country"),
         step_count=2,
     )
 

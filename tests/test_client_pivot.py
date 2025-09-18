@@ -30,7 +30,7 @@ def test_pivot_events_dataframe_without_grouping_single_event() -> None:
     )
 
     result = pivot_events_dataframe(
-        df=df, interval_alias="interval", custom_aliases=[], events=["sign_up"]
+        df=df, interval_alias="interval", group_by_aliases=[], events=["sign_up"]
     )
 
     expected = pd.DataFrame(
@@ -60,7 +60,7 @@ def test_pivot_events_dataframe_multiple_events() -> None:
     result = pivot_events_dataframe(
         df=df,
         interval_alias="interval",
-        custom_aliases=[],
+        group_by_aliases=[],
         events=["sign_up", "purchase"],
     )
 
@@ -98,7 +98,7 @@ def test_pivot_events_dataframe_with_custom_dimensions() -> None:
     result = pivot_events_dataframe(
         df=df,
         interval_alias="interval",
-        custom_aliases=["platform"],
+        group_by_aliases=["platform"],
         events=["sign_up", "purchase"],
     )
 

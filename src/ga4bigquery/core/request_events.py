@@ -1,10 +1,10 @@
-"""Standalone request function for GA4 event metrics."""
+"""Standalone arguments function for GA4 event metrics."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
-from typing import Literal
+from typing import Literal, NotRequired, TypedDict, Unpack
 
 import pandas as pd
 from google.cloud import bigquery
@@ -24,51 +24,74 @@ from .query_helpers import (
 from .types import EventFilter
 
 
-def request_events(
-    *,
-    client: bigquery.Client,
-    table_id: str,
-    tz: str,
-    user_id_col: str,
-    events: str | Sequence[str],
-    start: date,
-    end: date,
-    measure: Literal["totals", "uniques"] = "totals",
-    formula: str | None = None,
-    filters: Sequence[EventFilter] | None = None,
-    group_by: str | Sequence[str] | None = None,
-    interval: Literal["day", "hour", "week", "month"] = "day",
-) -> pd.DataFrame:
-    """Return a time series of event metrics for ``table_id``."""
+class RequestEventsSharedArguments(TypedDict):
+    client: bigquery.Client
+    table_id: str
+    tz: str
+    user_id_col: str
 
-    normalized_events = normalize_events(events)
-    start_ts, end_ts = _parse_date_range(start, end, tz)
-    group_by_list = normalize_group_by(group_by)
-    custom_selects, custom_aliases = _parse_group_by(group_by_list)
+
+class RequestEventsSpecificArguments(TypedDict):
+    events: str | Sequence[str]
+    start: date
+    end: date
+    measure: NotRequired[Literal["totals", "uniques"]]
+    formula: NotRequired[str | None]
+    filters: NotRequired[Sequence[EventFilter] | None]
+    group_by: NotRequired[str | Sequence[str] | None]
+    interval: NotRequired[Literal["day", "hour", "week", "month"]]
+
+
+class RequestEventsArguments(
+    RequestEventsSharedArguments, RequestEventsSpecificArguments
+):
+    pass
+
+
+def request_events(**arguments: Unpack[RequestEventsArguments]) -> pd.DataFrame:
+    """Return a time series of event metrics."""
+
+    client = arguments["client"]
+    table_id = arguments["table_id"]
+    tz = arguments["tz"]
+    user_id_col = arguments["user_id_col"]
+
+    events = normalize_events(arguments["events"])
+    start, end = _parse_date_range(arguments["start"], arguments["end"], tz)
+
+    group_by = normalize_group_by(arguments.get("group_by"))
+    group_by_selects, group_by_aliases = _parse_group_by(group_by)
+
+    interval = arguments.get("interval", "day")
     interval_select, interval_alias, order_col = _build_interval_columns(interval, tz)
-    metric = metric_expression(measure, user_id_col, formula)
 
-    select_cols = [
+    metric = metric_expression(
+        arguments.get("measure", "totals"),
+        user_id_col,
+        arguments.get("formula"),
+    )
+
+    selects = [
         interval_select,
         "event_name",
         f"{metric} AS value",
-        *custom_selects,
+        *group_by_selects,
     ]
 
-    where_parts = [
-        event_name_condition(normalized_events),
-        *compile_filters(filters),
-        *table_suffix_clauses(table_id, start_ts, end_ts),
-        timestamp_condition(start_ts, end_ts),
+    wheres = [
+        event_name_condition(events),
+        *compile_filters(arguments.get("filters")),
+        *table_suffix_clauses(table_id, start, end),
+        timestamp_condition(start, end),
     ]
 
-    group_cols = [interval_alias, "event_name", *custom_aliases]
+    group_bys = [interval_alias, "event_name", *group_by_aliases]
 
     sql = f"""
-SELECT {', '.join(select_cols)}
+SELECT {', '.join(selects)}
 FROM `{table_id}`
-WHERE {join_where_clauses(where_parts)}
-GROUP BY {', '.join(group_cols)}
+WHERE {join_where_clauses(wheres)}
+GROUP BY {', '.join(group_bys)}
 ORDER BY {order_col} ASC
 """
 
@@ -77,8 +100,8 @@ ORDER BY {order_col} ASC
     return pivot_events_dataframe(
         df=df,
         interval_alias=interval_alias,
-        custom_aliases=custom_aliases,
-        events=normalized_events,
+        group_by_aliases=group_by_aliases,
+        events=events,
     )
 
 
@@ -96,10 +119,10 @@ def pivot_events_dataframe(
     *,
     df: pd.DataFrame,
     interval_alias: str,
-    custom_aliases: Sequence[str],
+    group_by_aliases: Sequence[str],
     events: Sequence[str],
 ) -> pd.DataFrame:
-    columns = list(custom_aliases)
+    columns = list(group_by_aliases)
     if len(events) > 1:
         columns.append("event_name")
 
@@ -118,6 +141,8 @@ def pivot_events_dataframe(
 
 
 __all__ = [
+    "RequestEventsArguments",
+    "RequestEventsSpecificArguments",
     "metric_expression",
     "pivot_events_dataframe",
     "request_events",
