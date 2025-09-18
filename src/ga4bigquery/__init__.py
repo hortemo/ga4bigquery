@@ -2,9 +2,9 @@
 
 from importlib import metadata
 
-from .core import EventFilter, FunnelStep, GA4BigQuery
+from .core import EventFilter, EventOperator, FunnelStep, GA4BigQuery
 
-__all__ = ["GA4BigQuery", "FunnelStep", "EventFilter"]
+__all__ = ["GA4BigQuery", "EventFilter", "EventOperator", "FunnelStep"]
 
 try:
     __version__ = metadata.version("ga4bigquery")
