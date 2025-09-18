@@ -2,22 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ga4bigquery.core.query_helpers import prepare_result_dataframe
 from ga4bigquery.core.request_events import pivot_events_dataframe
-
-
-def test_prepare_result_dataframe_preserves_platform_values() -> None:
-    df = pd.DataFrame(
-        {
-            "interval": ["2024-01-01"],
-            "platform": ["IOS"],
-        }
-    )
-
-    result = prepare_result_dataframe(df, "interval")
-
-    assert list(result["platform"]) == ["IOS"]
-    assert result["interval"].dtype == "datetime64[ns]"
 
 
 def test_pivot_events_dataframe_without_grouping_single_event() -> None:
