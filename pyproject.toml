@@ -1,0 +1,68 @@
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ga4bigquery"
+version = "1.0.0"
+description = "Lean GA4 BigQuery event + funnel querying"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [{ name = "Henrik Hortemo" }]
+keywords = ["analytics", "ga4", "google-analytics", "bigquery", "funnel-analysis"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: Log Analysis",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "pandas>=1.5",
+    "google-cloud-bigquery>=3.13",
+    "google-cloud-bigquery-storage>=2.33",
+    "db-dtypes>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.4",
+    "build>=1.0",
+    "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/hortemo/ga4bigquery"
+Repository = "https://github.com/hortemo/ga4bigquery"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+ga4bigquery = ["py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ga4bigquery*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: marks tests as end-to-end and requiring external Google Cloud access",
+]
