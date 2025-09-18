@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from ga4bigquery import GA4BigQuery
+from ga4bigquery.core.request_funnel import pivot_funnel_dataframe
 
 
 def test_pivot_funnel_dataframe_without_grouping():
@@ -18,7 +18,12 @@ def test_pivot_funnel_dataframe_without_grouping():
         }
     )
 
-    result = GA4BigQuery._pivot_funnel_dataframe(df, "event_date", (), 3)
+    result = pivot_funnel_dataframe(
+        df=df,
+        interval_alias="event_date",
+        custom_aliases=(),
+        step_count=3,
+    )
 
     expected = pd.DataFrame(
         {
@@ -51,8 +56,8 @@ def test_pivot_funnel_dataframe_with_custom_aliases_creates_sorted_multiindex():
         }
     )
 
-    result = GA4BigQuery._pivot_funnel_dataframe(
-        df,
+    result = pivot_funnel_dataframe(
+        df=df,
         interval_alias="event_date",
         custom_aliases=("platform", "country"),
         step_count=2,

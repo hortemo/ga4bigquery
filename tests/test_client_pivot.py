@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ga4bigquery.core.client import GA4BigQuery
+from ga4bigquery.core.query_helpers import prepare_result_dataframe
+from ga4bigquery.core.request_events import pivot_events_dataframe
 
 
 def test_prepare_result_dataframe_preserves_platform_values() -> None:
@@ -13,7 +14,7 @@ def test_prepare_result_dataframe_preserves_platform_values() -> None:
         }
     )
 
-    result = GA4BigQuery._prepare_result_dataframe(df, "interval")
+    result = prepare_result_dataframe(df, "interval")
 
     assert list(result["platform"]) == ["IOS"]
     assert result["interval"].dtype == "datetime64[ns]"
@@ -28,7 +29,9 @@ def test_pivot_events_dataframe_without_grouping_single_event() -> None:
         }
     )
 
-    result = GA4BigQuery._pivot_events_dataframe(df, "interval", [], ["sign_up"])
+    result = pivot_events_dataframe(
+        df=df, interval_alias="interval", custom_aliases=[], events=["sign_up"]
+    )
 
     expected = pd.DataFrame(
         {"value": [3, 5]},
@@ -54,11 +57,11 @@ def test_pivot_events_dataframe_multiple_events() -> None:
         }
     )
 
-    result = GA4BigQuery._pivot_events_dataframe(
-        df,
-        "interval",
-        [],
-        ["sign_up", "purchase"],
+    result = pivot_events_dataframe(
+        df=df,
+        interval_alias="interval",
+        custom_aliases=[],
+        events=["sign_up", "purchase"],
     )
 
     expected = pd.DataFrame(
@@ -92,11 +95,11 @@ def test_pivot_events_dataframe_with_custom_dimensions() -> None:
         }
     )
 
-    result = GA4BigQuery._pivot_events_dataframe(
-        df,
-        "interval",
-        ["platform"],
-        ["sign_up", "purchase"],
+    result = pivot_events_dataframe(
+        df=df,
+        interval_alias="interval",
+        custom_aliases=["platform"],
+        events=["sign_up", "purchase"],
     )
 
     expected = pd.DataFrame(

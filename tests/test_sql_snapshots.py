@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+import textwrap
 
 from ga4bigquery import FunnelStep, GA4BigQuery
 
@@ -17,11 +18,15 @@ class _CaptureQuery(Exception):
         self.sql = sql
 
 
-class _CaptureGA4(GA4BigQuery):
-    """GA4 client that raises instead of querying so SQL can be inspected."""
+class _CaptureClient:
+    """Client stub that raises to expose the compiled SQL statement."""
 
-    def _query(self, sql: str):  # type: ignore[override]
+    def query(self, sql: str):  # pragma: no cover - simple test helper
         raise _CaptureQuery(sql)
+
+
+class _CaptureGA4(GA4BigQuery):
+    """GA4 client wrapper used in tests."""
 
 
 _SIMPLE_EVENTS_SQL = """
@@ -33,6 +38,14 @@ _SIMPLE_EVENTS_SQL = """
         """
 
 
+def _normalize_sql(sql: str) -> str:
+    """Collapse indentation and surrounding whitespace for stable comparisons."""
+
+    return "\n".join(
+        line.strip() for line in textwrap.dedent(sql).strip().splitlines()
+    )
+
+
 @pytest.fixture
 def capture_ga4() -> type[_CaptureGA4]:
     """Fixture returning a GA4 client class that records the generated SQL."""
@@ -41,25 +54,40 @@ def capture_ga4() -> type[_CaptureGA4]:
 
 
 def test_request_events_sql_simple_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_2024", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        table_id="proj.dataset.events_2024",
+        tz="UTC",
+        user_id_col="user_id",
+        client=_CaptureClient(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_events(events=["purchase"], start=date(2024, 3, 1), end=date(2024, 3, 2))
 
-    assert captured.value.sql == _SIMPLE_EVENTS_SQL
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(_SIMPLE_EVENTS_SQL)
 
 
 def test_request_events_accepts_single_event_string(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_2024", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        table_id="proj.dataset.events_2024",
+        tz="UTC",
+        user_id_col="user_id",
+        client=_CaptureClient(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_events(events="purchase", start=date(2024, 3, 1), end=date(2024, 3, 2))
 
-    assert captured.value.sql == _SIMPLE_EVENTS_SQL
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(_SIMPLE_EVENTS_SQL)
 
 
 def test_request_events_sql_uniques_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        table_id="proj.dataset.events",
+        tz="UTC",
+        user_id_col="user_id",
+        client=_CaptureClient(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_events(
@@ -78,7 +106,7 @@ def test_request_events_sql_uniques_snapshot(capture_ga4: type[_CaptureGA4]):
         ORDER BY event_date ASC
         """
 
-    assert captured.value.sql == expected_sql
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
 
 
 def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4]):
@@ -86,7 +114,7 @@ def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4
         table_id="proj.dataset.events_*",
         tz="America/Los_Angeles",
         user_id_col="user_pseudo_id",
-        client=object(),
+        client=_CaptureClient(),
     )
 
     with pytest.raises(_CaptureQuery) as captured:
@@ -108,11 +136,16 @@ def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4
         ORDER BY event_month ASC
         """
 
-    assert captured.value.sql == expected_sql
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
 
 
 def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=_CaptureClient(),
+    )
 
     filters = [
         {"prop": "event_params.quantity", "op": ">=", "values": [10]},
@@ -137,11 +170,16 @@ def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureG
         ORDER BY event_hour ASC
         """
 
-    assert captured.value.sql == expected_sql
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
 
 
 def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=_CaptureClient(),
+    )
 
     filters = [
         {"prop": "event_params.currency", "op": "IN", "values": ["USD", "EUR"]},
@@ -169,11 +207,16 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
         ORDER BY event_week ASC
         """
 
-    assert captured.value.sql == expected_sql
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
 
 
 def test_request_funnel_sql_single_step_snapshot(capture_ga4: type[_CaptureGA4]):
-    ga = capture_ga4(table_id="proj.dataset.events_*", tz="UTC", user_id_col="user_id", client=object())
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="UTC",
+        user_id_col="user_id",
+        client=_CaptureClient(),
+    )
 
     with pytest.raises(_CaptureQuery) as captured:
         ga.request_funnel(
@@ -190,15 +233,13 @@ step1 AS (
   WHERE event_name IN ('sign_up') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240131' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-31T23:59:59.999999+00:00')
 )
 
-SELECT
-  event_month,
-  COUNT(DISTINCT step1.user_id) AS `1`
+SELECT event_month, COUNT(DISTINCT step1.user_id) AS `1`
 FROM step1
 
 GROUP BY event_month
 ORDER BY event_month ASC"""
 
-    assert captured.value.sql == expected_sql
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
 
 
 def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
@@ -206,7 +247,7 @@ def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
         table_id="proj.dataset.events_*",
         tz="America/New_York",
         user_id_col="user_pseudo_id",
-        client=object(),
+        client=_CaptureClient(),
     )
 
     steps = [
@@ -255,9 +296,7 @@ step3 AS (
   WHERE event_name IN ('purchase') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240207' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:15:00-05:00') AND TIMESTAMP('2024-02-06T23:59:59-05:00')
 )
 
-SELECT
-  event_date, device, country,
-  COUNT(DISTINCT step1.user_pseudo_id) AS `1`, COUNT(DISTINCT step2.user_pseudo_id) AS `2`, COUNT(DISTINCT step3.user_pseudo_id) AS `3`
+SELECT event_date, device, country, COUNT(DISTINCT step1.user_pseudo_id) AS `1`, COUNT(DISTINCT step2.user_pseudo_id) AS `2`, COUNT(DISTINCT step3.user_pseudo_id) AS `3`
 FROM step1
 LEFT JOIN step2
        ON step2.user_pseudo_id = step1.user_pseudo_id
@@ -270,4 +309,4 @@ LEFT JOIN step3
 GROUP BY event_date, device, country
 ORDER BY event_date ASC"""
 
-    assert captured.value.sql == expected_sql
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
