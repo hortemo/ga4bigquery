@@ -27,10 +27,22 @@ def format_literal(value: object) -> str:
     return "'{}'".format(escape_literal(str(value)))
 
 
+def format_numeric_literal(value: object) -> str:
+    """Return ``value`` formatted as a numeric SQL literal."""
+
+    return str(value)
+
+
 def format_literal_list(values: Iterable[object]) -> str:
     """Return ``values`` formatted for use inside ``IN`` style expressions."""
 
     return "({})".format(", ".join(format_literal(value) for value in values))
+
+
+def format_numeric_literal_list(values: Iterable[object]) -> str:
+    """Return numeric ``values`` formatted for use inside ``IN`` style expressions."""
+
+    return "({})".format(", ".join(format_numeric_literal(value) for value in values))
 
 
 # Property path helpers -----------------------------------------------------
@@ -100,6 +112,22 @@ def _format_operator_values(op: str, values: Sequence[object]) -> str:
     raise ValueError(f"Unsupported operator: {op}")
 
 
+def _format_numeric_operator_values(op: str, values: Sequence[object]) -> str:
+    """Return the numeric SQL representation for ``values`` under ``op``."""
+
+    if op in {"IN", "NOT IN"}:
+        if not values:
+            raise ValueError("IN style operators require at least one value")
+        return format_numeric_literal_list(values)
+
+    if op in _SCALAR_OPERATORS:
+        if len(values) != 1:
+            raise ValueError("Comparison operators require exactly one value")
+        return format_numeric_literal(values[0])
+
+    raise ValueError(f"Unsupported operator: {op}")
+
+
 def _format_direct_filter(
     prop_with_prefix: str, op: str, values: Sequence[object]
 ) -> str:
@@ -117,10 +145,23 @@ def _values_are_numeric(values: Sequence[object]) -> bool:
 def _value_expression(values: Sequence[object]) -> str:
     """Return the SQL expression that extracts values from a nested record."""
 
+    if _values_are_numeric(values):
+        return (
+            "COALESCE("
+            "CAST(value.int_value AS NUMERIC), "
+            "CAST(value.float_value AS NUMERIC), "
+            "CAST(value.double_value AS NUMERIC), "
+            "SAFE_CAST(value.string_value AS NUMERIC)"
+            ")"
+        )
+
     return (
-        "CAST(value.string_value AS NUMERIC)"
-        if _values_are_numeric(values)
-        else "value.string_value"
+        "COALESCE("
+        "value.string_value, "
+        "CAST(value.int_value AS STRING), "
+        "CAST(value.float_value AS STRING), "
+        "CAST(value.double_value AS STRING)"
+        ")"
     )
 
 
@@ -133,7 +174,11 @@ def _format_nested_filter(
         prefix is not None
     )  # Defensive: ``parse_property_path`` guarantees this for nested props.
     value_expr = _value_expression(values)
-    values_sql = _format_operator_values(op, values)
+    values_sql = (
+        _format_numeric_operator_values(op, values)
+        if _values_are_numeric(values)
+        else _format_operator_values(op, values)
+    )
     key_literal = format_literal(key)
     return (
         "EXISTS (SELECT * FROM UNNEST({prefix}) WHERE key = {key_literal} "

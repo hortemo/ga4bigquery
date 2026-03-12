@@ -9,19 +9,8 @@ from typing import Literal
 import pandas as pd
 from google.cloud import bigquery
 
-from .helpers import (
-    _build_interval_columns,
-    _parse_date_range,
-    _parse_group_by,
-    compile_filters,
-    event_name_condition,
-    join_where_clauses,
-    normalize_events,
-    normalize_group_by,
-    prepare_result_dataframe,
-    table_suffix_clauses,
-    timestamp_condition,
-)
+from .helpers import prepare_result_dataframe
+from .query_builders import EventQueryBuilder, metric_expression
 from .types import EventFilter
 
 
@@ -61,62 +50,29 @@ def request_events(
         event name when multiple events are supplied.
     """
 
-    events = normalize_events(events)
-    start, end = _parse_date_range(start, end, tz)
-
-    group_by = normalize_group_by(group_by)
-    group_by_selects, group_by_aliases = _parse_group_by(group_by)
-
-    interval_select, interval_alias, order_col = _build_interval_columns(interval, tz)
-
-    metric = metric_expression(
-        measure,
-        user_id_col,
-        formula,
+    builder = EventQueryBuilder(
+        table_id=table_id,
+        tz=tz,
+        user_id_col=user_id_col,
+        events=events,
+        start=start,
+        end=end,
+        measure=measure,
+        formula=formula,
+        filters=filters,
+        group_by=group_by,
+        interval=interval,
     )
+    rendered = builder.build()
 
-    selects = [
-        interval_select,
-        "event_name",
-        f"{metric} AS value",
-        *group_by_selects,
-    ]
-
-    wheres = [
-        event_name_condition(events),
-        *compile_filters(filters),
-        *table_suffix_clauses(table_id, start, end),
-        timestamp_condition(start, end),
-    ]
-
-    group_bys = [interval_alias, "event_name", *group_by_aliases]
-
-    sql = f"""
-    SELECT {', '.join(selects)}
-    FROM `{table_id}`
-    WHERE {join_where_clauses(wheres)}
-    GROUP BY {', '.join(group_bys)}
-    ORDER BY {order_col} ASC
-    """
-
-    df = client.query(sql).result().to_dataframe()
-    df = prepare_result_dataframe(df, interval_alias)
+    df = client.query(rendered.sql).result().to_dataframe()
+    df = prepare_result_dataframe(df, rendered.interval_alias)
     return pivot_events_dataframe(
         df=df,
-        interval_alias=interval_alias,
-        group_by_aliases=group_by_aliases,
-        events=events,
+        interval_alias=rendered.interval_alias,
+        group_by_aliases=rendered.group_by_aliases,
+        events=rendered.events,
     )
-
-
-def metric_expression(
-    measure: Literal["totals", "uniques"], user_id_col: str, formula: str | None
-) -> str:
-    if formula is not None:
-        return formula
-    if measure == "uniques":
-        return f"COUNT(DISTINCT {user_id_col})"
-    return "COUNT(*)"
 
 
 def pivot_events_dataframe(
