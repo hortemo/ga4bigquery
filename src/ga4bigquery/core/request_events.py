@@ -40,14 +40,16 @@ def request_events(
         start: Inclusive start date for the query window in ``tz``.
         end: Inclusive end date for the query window in ``tz``.
         measure: Metric to calculate, either ``"totals"`` or ``"uniques"``.
-        formula: Custom SQL expression overriding ``measure`` when provided.
+        formula: Custom SQL aggregation expression overriding ``measure`` when
+            provided. When set, results are aggregated across the selected
+            event set unless ``event_name`` is explicitly added to ``group_by``.
         filters: Additional predicates applied to matching events.
         group_by: Dimensions to group by in addition to the interval.
         interval: Time bucketing granularity for returned rows.
 
     Returns:
         DataFrame containing one row per interval with event metrics pivoted by
-        event name when multiple events are supplied.
+        event name when multiple events are supplied and ``formula`` is not.
     """
 
     builder = EventQueryBuilder(
@@ -72,6 +74,7 @@ def request_events(
         interval_alias=rendered.interval_alias,
         group_by_aliases=rendered.group_by_aliases,
         events=rendered.events,
+        pivot_by_event_name=rendered.pivot_by_event_name,
     )
 
 
@@ -81,9 +84,10 @@ def pivot_events_dataframe(
     interval_alias: str,
     group_by_aliases: Sequence[str],
     events: Sequence[str],
+    pivot_by_event_name: bool,
 ) -> pd.DataFrame:
     columns = list(group_by_aliases)
-    if len(events) > 1:
+    if pivot_by_event_name and len(events) > 1:
         columns.append("event_name")
 
     if columns:

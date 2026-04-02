@@ -32,6 +32,7 @@ class RenderedEventsQuery:
     interval_alias: str
     group_by_aliases: tuple[str, ...]
     events: tuple[str, ...]
+    pivot_by_event_name: bool
 
 
 @dataclass(frozen=True)
@@ -94,18 +95,16 @@ class EventQueryBuilder:
 
         group_by = normalize_group_by(self.group_by)
         group_by_selects, group_by_aliases = _parse_group_by(group_by)
+        pivot_by_event_name = self.formula is None
 
         interval_select, interval_alias, order_col = _build_interval_columns(
             self.interval, self.tz
         )
 
         metric = metric_expression(self.measure, self.user_id_col, self.formula)
-        selects = [
-            interval_select,
-            "event_name",
-            f"{metric} AS value",
-            *group_by_selects,
-        ]
+        selects = [interval_select, f"{metric} AS value", *group_by_selects]
+        if pivot_by_event_name:
+            selects.insert(1, "event_name")
 
         wheres = [
             event_name_condition(events),
@@ -114,7 +113,9 @@ class EventQueryBuilder:
             timestamp_condition(start_ts, end_ts),
         ]
 
-        group_bys = [interval_alias, "event_name", *group_by_aliases]
+        group_bys = [interval_alias, *group_by_aliases]
+        if pivot_by_event_name:
+            group_bys.insert(1, "event_name")
 
         sql = f"""
         SELECT {', '.join(selects)}
@@ -129,6 +130,7 @@ class EventQueryBuilder:
             interval_alias=interval_alias,
             group_by_aliases=tuple(group_by_aliases),
             events=events,
+            pivot_by_event_name=pivot_by_event_name,
         )
 
 

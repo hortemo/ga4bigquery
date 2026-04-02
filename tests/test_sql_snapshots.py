@@ -234,11 +234,47 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
         )
 
     expected_sql = """
-        SELECT FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), WEEK(MONDAY))) AS event_week, event_name, SUM(event_value) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'currency') AS currency, geo.country AS country, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'tier') AS tier
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), WEEK(MONDAY))) AS event_week, SUM(event_value) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'currency') AS currency, geo.country AS country, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'tier') AS tier
         FROM `proj.dataset.events_*`
         WHERE (event_name IN ('purchase', 'login')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'currency' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) IN ('USD', 'EUR'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) = 'gold')) AND (platform != 'ANDROID') AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240107') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-07T23:59:59.999999+00:00'))
-        GROUP BY event_week, event_name, currency, country, tier
+        GROUP BY event_week, currency, country, tier
         ORDER BY event_week ASC
+        """
+
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
+
+
+def test_request_events_sql_cross_event_formula_snapshot(
+    capture_ga4: type[_CaptureGA4],
+):
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="America/Los_Angeles",
+        user_id_col="user_pseudo_id",
+        client=_CaptureClient(),
+    )
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["game_started", "product_purchased"],
+            start=date(2026, 3, 1),
+            end=date(2026, 3, 7),
+            formula=(
+                "COALESCE(SAFE_DIVIDE("
+                "COUNTIF(event_name = 'product_purchased'), "
+                "COUNT(DISTINCT IF(event_name = 'game_started', user_pseudo_id, NULL))"
+                "), 0)"
+            ),
+            group_by="platform",
+            interval="day",
+        )
+
+    expected_sql = """
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'America/Los_Angeles')) AS event_date, COALESCE(SAFE_DIVIDE(COUNTIF(event_name = 'product_purchased'), COUNT(DISTINCT IF(event_name = 'game_started', user_pseudo_id, NULL))), 0) AS value, platform AS platform
+        FROM `proj.dataset.events_*`
+        WHERE (event_name IN ('game_started', 'product_purchased')) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20260301' AND '20260308') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2026-03-01T00:00:00-08:00') AND TIMESTAMP('2026-03-07T23:59:59.999999-08:00'))
+        GROUP BY event_date, platform
+        ORDER BY event_date ASC
         """
 
     assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
