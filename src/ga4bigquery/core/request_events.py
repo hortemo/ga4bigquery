@@ -84,7 +84,7 @@ def pivot_events_dataframe(
     interval_alias: str,
     group_by_aliases: Sequence[str],
     events: Sequence[str],
-    pivot_by_event_name: bool,
+    pivot_by_event_name: bool = True,
 ) -> pd.DataFrame:
     columns = list(group_by_aliases)
     if pivot_by_event_name and len(events) > 1:
