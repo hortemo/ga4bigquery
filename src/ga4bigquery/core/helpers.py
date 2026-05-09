@@ -260,16 +260,52 @@ def _build_interval_columns(interval: Literal["day", "hour", "week", "month"], t
     return spec.render(tz)
 
 
-def _table_suffix_condition(table_id: str, start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> str | None:
-    """Return the ``_TABLE_SUFFIX`` predicate for wildcard tables, if needed."""
+def _wildcard_table_parts(table_id: str) -> tuple[str, str] | None:
+    """Return dataset reference and table prefix for wildcard table IDs."""
 
     if not table_id.endswith("*"):
         return None
 
+    normalized = table_id.strip("`")
+    if "." not in normalized:
+        return None
+
+    dataset_ref, table_pattern = normalized.rsplit(".", 1)
+    table_prefix = table_pattern[:-1]
+    if not dataset_ref or not table_prefix:
+        return None
+
+    return dataset_ref, table_prefix
+
+
+def _table_suffix_condition(table_id: str, start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> str | None:
+    """Return the ``_TABLE_SUFFIX`` predicate for wildcard tables, if needed."""
+
+    table_parts = _wildcard_table_parts(table_id)
+    if table_parts is None:
+        return None
+
+    dataset_ref, table_prefix = table_parts
     lo = start_ts.tz_convert("UTC").date().strftime("%Y%m%d")
     hi = end_ts.tz_convert("UTC").date().strftime("%Y%m%d")
-    return "REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '{lo}' AND '{hi}'".format(
-        lo=lo, hi=hi
+
+    suffix_date = "REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d{8})$')"
+    finalized_table_name = "CONCAT('{prefix}', {suffix_date})".format(
+        prefix=escape_literal(table_prefix), suffix_date=suffix_date
+    )
+
+    return (
+        "{suffix_date} BETWEEN '{lo}' AND '{hi}' AND "
+        "(REGEXP_CONTAINS(_TABLE_SUFFIX, r'^\\d{{8}}$') OR "
+        "(REGEXP_CONTAINS(_TABLE_SUFFIX, r'^intraday_\\d{{8}}$') AND "
+        "NOT EXISTS (SELECT 1 FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES` "
+        "WHERE table_name = {finalized_table_name})))"
+    ).format(
+        suffix_date=suffix_date,
+        lo=lo,
+        hi=hi,
+        dataset_ref=dataset_ref,
+        finalized_table_name=finalized_table_name,
     )
 
 
