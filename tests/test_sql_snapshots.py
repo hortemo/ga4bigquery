@@ -46,6 +46,17 @@ def _normalize_sql(sql: str) -> str:
     )
 
 
+def _suffix_clause(lo: str, hi: str) -> str:
+    return (
+        "REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d{8})$') "
+        f"BETWEEN '{lo}' AND '{hi}' AND "
+        "(REGEXP_CONTAINS(_TABLE_SUFFIX, r'^\\d{8}$') OR "
+        "(REGEXP_CONTAINS(_TABLE_SUFFIX, r'^intraday_\\d{8}$') AND "
+        "NOT EXISTS (SELECT 1 FROM `proj.dataset.INFORMATION_SCHEMA.TABLES` "
+        "WHERE table_name = CONCAT('events_', REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d{8})$')))))"
+    )
+
+
 @pytest.fixture
 def capture_ga4() -> type[_CaptureGA4]:
     """Fixture returning a GA4 client class that records the generated SQL."""
@@ -128,10 +139,10 @@ def test_request_events_sql_monthly_group_snapshot(capture_ga4: type[_CaptureGA4
             measure="totals",
         )
 
-    expected_sql = """
+    expected_sql = f"""
         SELECT FORMAT_DATE('%Y-%m', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'America/Los_Angeles'), MONTH)) AS event_month, event_name, COUNT(*) AS value, geo.country AS country
         FROM `proj.dataset.events_*`
-        WHERE (event_name IN ('login', 'purchase')) AND (platform IN ('ANDROID', 'IOS')) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20231215' AND '20240111') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2023-12-15T00:00:00-08:00') AND TIMESTAMP('2024-01-10T23:59:59.999999-08:00'))
+        WHERE (event_name IN ('login', 'purchase')) AND (platform IN ('ANDROID', 'IOS')) AND ({_suffix_clause("20231215", "20240111")}) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2023-12-15T00:00:00-08:00') AND TIMESTAMP('2024-01-10T23:59:59.999999-08:00'))
         GROUP BY event_month, event_name, country
         ORDER BY event_month ASC
         """
@@ -162,10 +173,10 @@ def test_request_events_sql_numeric_filters_snapshot(capture_ga4: type[_CaptureG
             interval="hour",
         )
 
-    expected_sql = """
+    expected_sql = f"""
         SELECT FORMAT_TIMESTAMP('%Y-%m-%d %H:00:00', TIMESTAMP_TRUNC(TIMESTAMP_MICROS(event_timestamp), HOUR, 'UTC'), 'UTC') AS event_hour, event_name, COUNT(*) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'quantity') AS quantity, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'level') AS level, platform AS platform
         FROM `proj.dataset.events_*`
-        WHERE (event_name IN ('purchase')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'quantity' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) >= 10)) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'score' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) < 5)) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240301' AND '20240303') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-03T23:59:59.999999+00:00'))
+        WHERE (event_name IN ('purchase')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'quantity' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) >= 10)) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'score' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) < 5)) AND ({_suffix_clause("20240301", "20240303")}) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-03-01T00:00:00+00:00') AND TIMESTAMP('2024-03-03T23:59:59.999999+00:00'))
         GROUP BY event_hour, event_name, quantity, level, platform
         ORDER BY event_hour ASC
         """
@@ -196,10 +207,10 @@ def test_request_events_sql_numeric_string_filters_snapshot(
             filters=filters,
         )
 
-    expected_sql = """
+    expected_sql = f"""
         SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date, event_name, COUNT(*) AS value
         FROM `proj.dataset.events_*`
-        WHERE (event_name IN ('first_open')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'previous_first_open_count' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) = 0)) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'update_with_analytics' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) = 0)) AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20250703' AND '20250703') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2025-07-03T00:00:00+00:00') AND TIMESTAMP('2025-07-03T23:59:59.999999+00:00'))
+        WHERE (event_name IN ('first_open')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'previous_first_open_count' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) = 0)) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'update_with_analytics' AND COALESCE(CAST(value.int_value AS NUMERIC), CAST(value.float_value AS NUMERIC), CAST(value.double_value AS NUMERIC), SAFE_CAST(value.string_value AS NUMERIC)) = 0)) AND ({_suffix_clause("20250703", "20250703")}) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2025-07-03T00:00:00+00:00') AND TIMESTAMP('2025-07-03T23:59:59.999999+00:00'))
         GROUP BY event_date, event_name
         ORDER BY event_date ASC
         """
@@ -233,12 +244,48 @@ def test_request_events_sql_snapshot(capture_ga4: type[_CaptureGA4]):
             interval="week",
         )
 
-    expected_sql = """
-        SELECT FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), WEEK(MONDAY))) AS event_week, event_name, SUM(event_value) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'currency') AS currency, geo.country AS country, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'tier') AS tier
+    expected_sql = f"""
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), WEEK(MONDAY))) AS event_week, SUM(event_value) AS value, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'currency') AS currency, geo.country AS country, (SELECT props.value.string_value FROM UNNEST(user_properties) props WHERE props.key = 'tier') AS tier
         FROM `proj.dataset.events_*`
-        WHERE (event_name IN ('purchase', 'login')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'currency' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) IN ('USD', 'EUR'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) = 'gold')) AND (platform != 'ANDROID') AND (REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240107') AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-07T23:59:59.999999+00:00'))
-        GROUP BY event_week, event_name, currency, country, tier
+        WHERE (event_name IN ('purchase', 'login')) AND (EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'currency' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) IN ('USD', 'EUR'))) AND (EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) = 'gold')) AND (platform != 'ANDROID') AND ({_suffix_clause("20240101", "20240107")}) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-07T23:59:59.999999+00:00'))
+        GROUP BY event_week, currency, country, tier
         ORDER BY event_week ASC
+        """
+
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
+
+
+def test_request_events_sql_cross_event_formula_snapshot(
+    capture_ga4: type[_CaptureGA4],
+):
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="America/Los_Angeles",
+        user_id_col="user_pseudo_id",
+        client=_CaptureClient(),
+    )
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_events(
+            events=["game_started", "product_purchased"],
+            start=date(2026, 3, 1),
+            end=date(2026, 3, 7),
+            formula=(
+                "COALESCE(SAFE_DIVIDE("
+                "COUNTIF(event_name = 'product_purchased'), "
+                "COUNT(DISTINCT IF(event_name = 'game_started', user_pseudo_id, NULL))"
+                "), 0)"
+            ),
+            group_by="platform",
+            interval="day",
+        )
+
+    expected_sql = f"""
+        SELECT FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'America/Los_Angeles')) AS event_date, COALESCE(SAFE_DIVIDE(COUNTIF(event_name = 'product_purchased'), COUNT(DISTINCT IF(event_name = 'game_started', user_pseudo_id, NULL))), 0) AS value, platform AS platform
+        FROM `proj.dataset.events_*`
+        WHERE (event_name IN ('game_started', 'product_purchased')) AND ({_suffix_clause("20260301", "20260308")}) AND (TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2026-03-01T00:00:00-08:00') AND TIMESTAMP('2026-03-07T23:59:59.999999-08:00'))
+        GROUP BY event_date, platform
+        ORDER BY event_date ASC
         """
 
     assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
@@ -260,11 +307,11 @@ def test_request_funnel_sql_single_step_snapshot(capture_ga4: type[_CaptureGA4])
             interval="month",
         )
 
-    expected_sql = """WITH
+    expected_sql = f"""WITH
 step1 AS (
   SELECT user_id, event_timestamp, FORMAT_DATE('%Y-%m', DATE_TRUNC(DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC'), MONTH)) AS event_month
   FROM `proj.dataset.events_*`
-  WHERE event_name IN ('sign_up') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240101' AND '20240131' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-31T23:59:59.999999+00:00')
+  WHERE event_name IN ('sign_up') AND {_suffix_clause("20240101", "20240131")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-31T23:59:59.999999+00:00')
 )
 
 SELECT event_month, COUNT(DISTINCT step1.user_id) AS `1`
@@ -313,21 +360,21 @@ def test_request_funnel_sql_snapshot(capture_ga4: type[_CaptureGA4]):
             interval="day",
         )
 
-    expected_sql = """WITH
+    expected_sql = f"""WITH
 step1 AS (
   SELECT user_pseudo_id, event_timestamp, FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'America/New_York')) AS event_date, (SELECT props.value.string_value FROM UNNEST(event_params) props WHERE props.key = 'device') AS device, geo.country AS country
   FROM `proj.dataset.events_*`
-  WHERE event_name IN ('view_item') AND EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'category' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) = 'electronics') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240204' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:00:00-05:00') AND TIMESTAMP('2024-02-03T23:59:59.999999-05:00')
+  WHERE event_name IN ('view_item') AND EXISTS (SELECT * FROM UNNEST(event_params) WHERE key = 'category' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) = 'electronics') AND {_suffix_clause("20240201", "20240204")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:00:00-05:00') AND TIMESTAMP('2024-02-03T23:59:59.999999-05:00')
 ),
 step2 AS (
   SELECT user_pseudo_id, event_timestamp
   FROM `proj.dataset.events_*`
-  WHERE event_name IN ('add_to_cart') AND EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) IN ('gold', 'silver')) AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240205' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:05:00-05:00') AND TIMESTAMP('2024-02-04T23:59:59-05:00')
+  WHERE event_name IN ('add_to_cart') AND EXISTS (SELECT * FROM UNNEST(user_properties) WHERE key = 'tier' AND COALESCE(value.string_value, CAST(value.int_value AS STRING), CAST(value.float_value AS STRING), CAST(value.double_value AS STRING)) IN ('gold', 'silver')) AND {_suffix_clause("20240201", "20240205")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:05:00-05:00') AND TIMESTAMP('2024-02-04T23:59:59-05:00')
 ),
 step3 AS (
   SELECT user_pseudo_id, event_timestamp
   FROM `proj.dataset.events_*`
-  WHERE event_name IN ('purchase') AND REGEXP_EXTRACT(_TABLE_SUFFIX, r'(\\d+)$') BETWEEN '20240201' AND '20240207' AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:15:00-05:00') AND TIMESTAMP('2024-02-06T23:59:59-05:00')
+  WHERE event_name IN ('purchase') AND {_suffix_clause("20240201", "20240207")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-02-01T00:15:00-05:00') AND TIMESTAMP('2024-02-06T23:59:59-05:00')
 )
 
 SELECT event_date, device, country, COUNT(DISTINCT step1.user_pseudo_id) AS `1`, COUNT(DISTINCT step2.user_pseudo_id) AS `2`, COUNT(DISTINCT step3.user_pseudo_id) AS `3`
