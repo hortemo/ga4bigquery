@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from collections.abc import Sequence
 from typing import Literal
 
 import pandas as pd
@@ -148,6 +148,8 @@ class FunnelQueryBuilder:
         end: date,
         group_by: str | Sequence[str] | None,
         interval: Literal["day", "hour", "week", "month"],
+        conversion_window_gt: timedelta | None = None,
+        conversion_window_lt: timedelta | None = None,
     ) -> None:
         self.table_id = table_id
         self.tz = tz
@@ -157,6 +159,20 @@ class FunnelQueryBuilder:
         self.end = end
         self.group_by = group_by
         self.interval = interval
+        self.conversion_window_gt = conversion_window_gt
+        self.conversion_window_lt = conversion_window_lt
+
+        if conversion_window_gt is not None or conversion_window_lt is not None:
+            normalized_gt = conversion_window_gt or timedelta(seconds=0)
+            normalized_lt = conversion_window_lt or timedelta(days=30)
+            if normalized_gt < timedelta(seconds=0):
+                raise ValueError("conversion_window_gt must be non-negative")
+            if normalized_lt <= normalized_gt:
+                raise ValueError(
+                    "conversion_window_lt must be greater than conversion_window_gt"
+                )
+            self.conversion_window_gt = normalized_gt
+            self.conversion_window_lt = normalized_lt
 
     def build(self) -> RenderedFunnelQuery:
         if not self.steps:
@@ -224,6 +240,13 @@ ORDER BY {interval_order_by} ASC
                 cumulative_lt += step.conversion_window_lt
                 step_start = start_ts + cumulative_gt
                 step_end = end_ts + cumulative_lt
+                if (
+                    self.conversion_window_gt is not None
+                    and idx == len(self.steps)
+                ):
+                    step_start = max(step_start, start_ts + self.conversion_window_gt)
+                if self.conversion_window_lt is not None:
+                    step_end = min(step_end, end_ts + self.conversion_window_lt)
 
             step_selects = [self.user_id_col, "event_timestamp"]
             if idx == 1:
@@ -254,11 +277,33 @@ ORDER BY {interval_order_by} ASC
             step = self.steps[idx - 1]
             gt_us = int(step.conversion_window_gt.total_seconds() * 1_000_000)
             lt_us = int(step.conversion_window_lt.total_seconds() * 1_000_000)
+            global_window_clauses = ""
+            if idx == len(self.steps):
+                if (
+                    self.conversion_window_gt is not None
+                    and self.conversion_window_gt > timedelta(seconds=0)
+                ):
+                    global_gt_us = int(
+                        self.conversion_window_gt.total_seconds() * 1_000_000
+                    )
+                    global_window_clauses += (
+                        f"\n            AND step{idx}.event_timestamp - step1.event_timestamp > "
+                        f"{global_gt_us}"
+                    )
+                if self.conversion_window_lt is not None:
+                    global_lt_us = int(
+                        self.conversion_window_lt.total_seconds() * 1_000_000
+                    )
+                    global_window_clauses += (
+                        f"\n            AND step{idx}.event_timestamp - step1.event_timestamp < "
+                        f"{global_lt_us}"
+                    )
+
             joins.append(
                 f"""LEFT JOIN step{idx}
             ON step{idx}.{self.user_id_col} = step{idx-1}.{self.user_id_col}
             AND step{idx}.event_timestamp - step{idx-1}.event_timestamp > {gt_us}
-            AND step{idx}.event_timestamp - step{idx-1}.event_timestamp < {lt_us}"""
+            AND step{idx}.event_timestamp - step{idx-1}.event_timestamp < {lt_us}{global_window_clauses}"""
             )
         return joins
 
