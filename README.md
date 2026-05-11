@@ -11,7 +11,7 @@ pip install ga4bigquery
 ## Usage
 
 ```python
-from datetime import date
+from datetime import date, timedelta
 from ga4bigquery import GA4BigQuery, FunnelStep
 
 ga = GA4BigQuery(table_id="bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*")
@@ -35,5 +35,6 @@ purchase_funnel = ga.request_funnel(
     end=date(2020, 11, 2),
     group_by="platform",
     interval="day",
+    conversion_window_lt=timedelta(hours=1),
 )
 ```
