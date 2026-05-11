@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import textwrap
 from datetime import date, timedelta
 
 import pytest
-import textwrap
 
 from ga4bigquery import FunnelStep, GA4BigQuery
 
@@ -388,6 +388,75 @@ LEFT JOIN step3
       AND step3.event_timestamp - step2.event_timestamp > 600000000
       AND step3.event_timestamp - step2.event_timestamp < 172800000000
 GROUP BY event_date, device, country
+ORDER BY event_date ASC"""
+
+    assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)
+
+
+def test_request_funnel_sql_global_conversion_window_snapshot(
+    capture_ga4: type[_CaptureGA4],
+):
+    ga = capture_ga4(
+        table_id="proj.dataset.events_*",
+        tz="UTC",
+        user_id_col="user_pseudo_id",
+        client=_CaptureClient(),
+    )
+
+    steps = [
+        FunnelStep(event_name="first_open"),
+        FunnelStep(
+            event_name="game_started",
+            conversion_window_gt=timedelta(seconds=0),
+            conversion_window_lt=timedelta(minutes=6),
+        ),
+        FunnelStep(
+            event_name="game_started",
+            conversion_window_gt=timedelta(seconds=0),
+            conversion_window_lt=timedelta(minutes=6),
+        ),
+    ]
+
+    with pytest.raises(_CaptureQuery) as captured:
+        ga.request_funnel(
+            steps=steps,
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 2),
+            interval="day",
+            conversion_window_gt=timedelta(minutes=1),
+            conversion_window_lt=timedelta(hours=1),
+        )
+
+    expected_sql = f"""WITH
+step1 AS (
+  SELECT user_pseudo_id, event_timestamp, FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_MICROS(event_timestamp), 'UTC')) AS event_date
+  FROM `proj.dataset.events_*`
+  WHERE event_name IN ('first_open') AND {_suffix_clause("20240101", "20240102")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-02T23:59:59.999999+00:00')
+),
+step2 AS (
+  SELECT user_pseudo_id, event_timestamp
+  FROM `proj.dataset.events_*`
+  WHERE event_name IN ('game_started') AND {_suffix_clause("20240101", "20240103")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:00:00+00:00') AND TIMESTAMP('2024-01-03T00:05:59+00:00')
+),
+step3 AS (
+  SELECT user_pseudo_id, event_timestamp
+  FROM `proj.dataset.events_*`
+  WHERE event_name IN ('game_started') AND {_suffix_clause("20240101", "20240103")} AND TIMESTAMP_MICROS(event_timestamp) BETWEEN TIMESTAMP('2024-01-01T00:01:00+00:00') AND TIMESTAMP('2024-01-03T00:11:59+00:00')
+)
+
+SELECT event_date, COUNT(DISTINCT step1.user_pseudo_id) AS `1`, COUNT(DISTINCT step2.user_pseudo_id) AS `2`, COUNT(DISTINCT step3.user_pseudo_id) AS `3`
+FROM step1
+LEFT JOIN step2
+      ON step2.user_pseudo_id = step1.user_pseudo_id
+     AND step2.event_timestamp - step1.event_timestamp > 0
+     AND step2.event_timestamp - step1.event_timestamp < 360000000
+LEFT JOIN step3
+       ON step3.user_pseudo_id = step2.user_pseudo_id
+      AND step3.event_timestamp - step2.event_timestamp > 0
+      AND step3.event_timestamp - step2.event_timestamp < 360000000
+      AND step3.event_timestamp - step1.event_timestamp > 60000000
+      AND step3.event_timestamp - step1.event_timestamp < 3600000000
+GROUP BY event_date
 ORDER BY event_date ASC"""
 
     assert _normalize_sql(captured.value.sql) == _normalize_sql(expected_sql)

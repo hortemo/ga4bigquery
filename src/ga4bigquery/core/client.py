@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 import pandas as pd
@@ -89,6 +89,8 @@ class GA4BigQuery:
         end: date,
         group_by: str | Sequence[str] | None = None,
         interval: Literal["day", "hour", "week", "month"] = "day",
+        conversion_window_gt: timedelta | None = None,
+        conversion_window_lt: timedelta | None = None,
     ) -> pd.DataFrame:
         """Return conversion counts for a funnel across time.
 
@@ -98,6 +100,10 @@ class GA4BigQuery:
             end: Inclusive end date for the funnel window.
             group_by: Dimensions used to split funnel results (optional).
             interval: Time bucketing granularity for the aggregated counts.
+            conversion_window_gt: Optional lower bound for completing the whole
+                funnel, measured from step 1 to the final step.
+            conversion_window_lt: Optional upper bound for completing the whole
+                funnel, measured from step 1 to the final step.
 
         Returns:
             DataFrame containing funnel step counts indexed by interval.
@@ -113,4 +119,6 @@ class GA4BigQuery:
             end=end,
             group_by=group_by,
             interval=interval,
+            conversion_window_gt=conversion_window_gt,
+            conversion_window_lt=conversion_window_lt,
         )

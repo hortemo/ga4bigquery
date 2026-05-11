@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 import pandas as pd
@@ -25,6 +25,8 @@ def request_funnel(
     end: date,
     group_by: str | Sequence[str] | None = None,
     interval: Literal["day", "hour", "week", "month"] = "day",
+    conversion_window_gt: timedelta | None = None,
+    conversion_window_lt: timedelta | None = None,
 ) -> pd.DataFrame:
     """Return conversion counts for ``steps`` executed against ``table_id``.
 
@@ -38,6 +40,10 @@ def request_funnel(
         end: Inclusive end date for the funnel window in ``tz``.
         group_by: Dimensions used to split funnel results (optional).
         interval: Time bucketing granularity for the aggregated counts.
+        conversion_window_gt: Optional lower bound for completing the whole
+            funnel, measured from step 1 to the final step.
+        conversion_window_lt: Optional upper bound for completing the whole
+            funnel, measured from step 1 to the final step.
 
     Returns:
         DataFrame containing one row per interval with funnel step counts. The
@@ -56,6 +62,8 @@ def request_funnel(
         end=end,
         group_by=group_by,
         interval=interval,
+        conversion_window_gt=conversion_window_gt,
+        conversion_window_lt=conversion_window_lt,
     )
     rendered = builder.build()
 
